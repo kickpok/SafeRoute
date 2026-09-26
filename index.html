@@ -89,9 +89,20 @@
           </div>
         </div>
 
-        <!-- Persona -->
+        <!-- Persona & Time of Day -->
         <div class="field-group">
-          <label class="field-label">👤 Travel Profile</label>
+          <div class="field-label-row">
+            <label class="field-label">👤 Travel Profile &amp; Time</label>
+            <div class="time-picker-wrapper">
+              <span class="time-picker-icon">🕒</span>
+              <select class="time-select" id="intake-time-select" onchange="handleTimeChange(this.value)">
+                <option value="22" selected>Late Night (10 PM)</option>
+                <option value="19">Evening (7 PM)</option>
+                <option value="14">Afternoon (2 PM)</option>
+                <option value="2">Midnight (2 AM)</option>
+              </select>
+            </div>
+          </div>
           <div class="intake-persona-grid" id="intake-persona-grid" role="group" aria-label="Select travel persona">
             <button class="intake-persona-btn active" id="intake-persona-solo"
               data-persona="solo" onclick="intakeSelectPersona(this)">
@@ -168,6 +179,16 @@
             </div>
           </div>
 
+          <!-- Feature Action Strip: Safety Assistant & Escape Mode -->
+          <div class="action-header-bar">
+            <button class="header-action-btn assistant-trigger-btn" onclick="toggleAssistant(true)" title="Ask Safety Assistant">
+              💬 Assistant
+            </button>
+            <button class="header-action-btn escape-trigger-btn" onclick="triggerEscapeMode()" title="Trigger Emergency Escape Mode">
+              🚨 ESCAPE MODE
+            </button>
+          </div>
+
           <!-- Trip summary chips -->
           <div class="trip-chips" id="trip-chips" aria-label="Current trip">
             <div class="trip-chip" id="chip-origin">📍 —</div>
@@ -175,24 +196,32 @@
             <div class="trip-chip" id="chip-dest">🏁 —</div>
           </div>
 
-          <!-- Persona strip (dashboard copy — drives live rescoring) -->
-          <div id="persona-strip" role="group" aria-label="Change travel persona">
-            <button class="persona-btn active" id="persona-solo"
-              data-persona="solo" onclick="selectPersona(this)">
-              <span class="icon">🚶</span> Solo
-            </button>
-            <button class="persona-btn" id="persona-kids"
-              data-persona="kids" onclick="selectPersona(this)">
-              <span class="icon">👨‍👧</span> Kids
-            </button>
-            <button class="persona-btn" id="persona-shift"
-              data-persona="shift" onclick="selectPersona(this)">
-              <span class="icon">🌙</span> Shift
-            </button>
-            <button class="persona-btn" id="persona-elderly"
-              data-persona="elderly" onclick="selectPersona(this)">
-              <span class="icon">🧓</span> Elderly
-            </button>
+          <!-- Persona & Time strip (dashboard copy — drives live backend rescoring) -->
+          <div class="dashboard-controls-row">
+            <div id="persona-strip" role="group" aria-label="Change travel persona">
+              <button class="persona-btn active" id="persona-solo"
+                data-persona="solo" onclick="selectPersona(this)">
+                <span class="icon">🚶</span> Solo
+              </button>
+              <button class="persona-btn" id="persona-kids"
+                data-persona="kids" onclick="selectPersona(this)">
+                <span class="icon">👨‍👧</span> Kids
+              </button>
+              <button class="persona-btn" id="persona-shift"
+                data-persona="shift" onclick="selectPersona(this)">
+                <span class="icon">🌙</span> Shift
+              </button>
+              <button class="persona-btn" id="persona-elderly"
+                data-persona="elderly" onclick="selectPersona(this)">
+                <span class="icon">🧓</span> Elderly
+              </button>
+            </div>
+            <select class="dash-time-select" id="dash-time-select" onchange="handleTimeChange(this.value)" aria-label="Select travel hour">
+              <option value="22" selected>10 PM</option>
+              <option value="19">7 PM</option>
+              <option value="14">2 PM</option>
+              <option value="2">2 AM</option>
+            </select>
           </div>
         </div><!-- /header -->
 
@@ -226,6 +255,26 @@
       <!-- ── MAP ── -->
       <div id="map-container">
         <div id="map"></div>
+
+        <!-- Emergency Escape Mode Banner Overlay -->
+        <div id="escape-banner" class="escape-banner hidden">
+          <div class="escape-banner-header">
+            <div class="escape-badge">🚨 EMERGENCY ESCAPE ACTIVE</div>
+            <div class="escape-pulse-tag"><span class="pulse-dot"></span> LIVE GPS TRACKING</div>
+          </div>
+          <div class="escape-banner-body">
+            <div class="escape-target-card">
+              <div class="escape-icon">🛡️</div>
+              <div class="escape-details">
+                <div class="escape-title" id="escape-refuge-name">Navigating to Nearest Refuge</div>
+                <div class="escape-sub" id="escape-refuge-sub">Alert dispatched to trusted contacts &amp; local authorities</div>
+              </div>
+            </div>
+            <button class="escape-exit-btn" onclick="exitEscapeMode()">
+              ✕ Exit Escape Mode
+            </button>
+          </div>
+        </div>
 
         <!-- Safe island legend -->
         <div id="map-legend" aria-label="Safe island legend">
@@ -271,6 +320,37 @@
     </div><!-- /app -->
 
   </div><!-- /screen-dashboard -->
+
+  <!-- ── SAFETY ASSISTANT DRAWER ── -->
+  <div id="assistant-drawer" class="assistant-drawer hidden">
+    <div class="assistant-header">
+      <div class="assistant-title">
+        <span class="assistant-bot-icon">🛡️</span>
+        <div>
+          <strong>SafeRoute Assistant</strong>
+          <div class="assistant-sub">Powered by Track A Safety Engine</div>
+        </div>
+      </div>
+      <button class="assistant-close-btn" onclick="toggleAssistant(false)" aria-label="Close Assistant">✕</button>
+    </div>
+    <div class="assistant-messages" id="assistant-messages">
+      <div class="chat-msg bot-msg">
+        <div class="msg-bubble">
+          Hello! I'm your SafeRoute Safety Assistant. Ask me anything about route lighting, safety scores, crowd density, or nearby safe islands!
+        </div>
+      </div>
+    </div>
+    <div class="assistant-prompt-chips">
+      <button class="prompt-chip" onclick="sendAssistantQuery('Is this route safe for me at 10 PM?')">Is this route safe at 10 PM?</button>
+      <button class="prompt-chip" onclick="sendAssistantQuery('Why is this route safer?')">Why is this route safer?</button>
+      <button class="prompt-chip" onclick="sendAssistantQuery('Where can I go if I feel unsafe?')">Nearest safe island?</button>
+      <button class="prompt-chip" onclick="sendAssistantQuery('What if I travel alone?')">What if I travel alone?</button>
+    </div>
+    <div class="assistant-input-bar">
+      <input type="text" id="assistant-input" placeholder="Ask about route safety, lighting, safe islands..." onkeydown="if(event.key==='Enter') sendAssistantQuery()" />
+      <button id="assistant-send-btn" onclick="sendAssistantQuery()">Send</button>
+    </div>
+  </div>
 
   <!-- Toast notification -->
   <div id="toast" role="status" aria-live="polite"></div>

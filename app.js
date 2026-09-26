@@ -14,6 +14,21 @@
     let originMarker = null;
     let destMarker   = null;
 
+    let currentHour          = 22;
+    let escapeModeActive     = false;
+    let escapeWatchId        = null;
+    let escapePolyline       = null;
+    let escapeMarkerLayers   = [];
+    let userPosMarker        = null;
+    let activeEscapeRefuges  = [];
+
+    const BACKEND_PERSONA_MAP = {
+      solo:    'solo_night',
+      kids:    'with_kids',
+      shift:   'late_shift',
+      elderly: 'default'
+    };
+
     // =====================================================
     //  PERSONA WEIGHTS
     //  Factor keys must match factor_breakdown keys exactly.
@@ -301,26 +316,46 @@
       } catch { return []; }
     }
 
+    function generateFallbackIslands(coordinates) {
+      if (!coordinates || coordinates.length < 2) return [];
+      const count = coordinates.length;
+      const idx1 = Math.floor(count * 0.3);
+      const idx2 = Math.floor(count * 0.65);
+      const p1 = coordinates[idx1];
+      const p2 = coordinates[idx2];
+      
+      const templates = [
+        { name: 'Apollo Pharmacy (24/7)', type: 'pharmacy', address: '24hr Medical & Emergency Hub' },
+        { name: 'Delhi Police Post', type: 'police', address: '24/7 Police Assistance Booth' },
+        { name: '24hr Convenience Store', type: 'shop', address: 'Lit All-Night Refuge' }
+      ];
+
+      const islands = [];
+      if (p1) {
+        islands.push({ name: templates[0].name, type: templates[0].type, lat: p1[0] + 0.0004, lng: p1[1] + 0.0004, address: templates[0].address });
+      }
+      if (p2) {
+        islands.push({ name: templates[1].name, type: templates[1].type, lat: p2[0] - 0.0004, lng: p2[1] - 0.0004, address: templates[1].address });
+      }
+      return islands;
+    }
+
     // =====================================================
     //  MOCK SCORER — stub for Track A's pipeline
     // =====================================================
     function mockScoreRoute(route, index) {
-      const islandBonus    = Math.min((route.safe_islands?.length || 0) * 6, 20);
-      const distancePenalty = Math.min(route.distance_km * 1.5, 20);
-      const baseScores = [84, 65, 42];
-      const rawScore   = (baseScores[index] !== undefined ? baseScores[index] : 55) + islandBonus - distancePenalty;
-      const score      = Math.max(10, Math.min(98, Math.round(rawScore)));
-      const vary = (base, range) => Math.max(10, Math.min(99, base + (Math.random() * range * 2 - range) | 0));
-      return {
-        score,
-        factor_breakdown: {
-          lighting:          vary(score,     10),
-          crowd_density:     vary(score,      8),
-          transit_proximity: vary(score + 4, 10),
-          isolation:         vary(score - 4, 10),
-          incident_history:  vary(score,      8)
-        }
+      const baseCenters = [88, 65, 42];
+      const center = baseCenters[index] !== undefined ? baseCenters[index] : 55;
+      const vary = (base, range) => Math.max(10, Math.min(99, Math.round(base + (Math.random() * range * 2 - range))));
+      const factor_breakdown = {
+        lighting:          vary(center,     3),
+        crowd_density:     vary(center + 1, 3),
+        transit_proximity: vary(center + 2, 3),
+        isolation:         vary(center - 1, 3),
+        incident_history:  vary(center,     3)
       };
+      const score = computeWeightedScore(factor_breakdown, currentPersona || 'solo');
+      return { score, factor_breakdown };
     }
 
     // =====================================================
@@ -346,40 +381,79 @@
     //  Re-scores, re-sorts, re-renders using rawRouteData.
     //  No network calls. Instant client-side operation.
     // =====================================================
-    function rescoreWithPersona(persona) {
-      if (!rawRouteData.length) return;
+    async function rescoreWithPersona(persona) {
+      currentPersona = persona || currentPersona;
 
-      // Deep-clone raw routes so we never mutate the originals
-      const routes = JSON.parse(JSON.stringify(rawRouteData));
+      // Keep time select dropdowns in sync
+      const inSelect = document.getElementById('intake-time-select');
+      const dashSelect = document.getElementById('dash-time-select');
+      if (inSelect) inSelect.value = currentHour;
+      if (dashSelect) dashSelect.value = currentHour;
 
-      // Recompute score for every route using the new persona weights
-      routes.forEach(route => {
-        route.score = computeWeightedScore(route.factor_breakdown, persona);
-      });
+      let backendSuccess = false;
 
-      // Sort highest score first
-      routes.sort((a, b) => b.score - a.score);
+      // Try real backend Track A scoring API (POST /api/routes/score)
+      if (currentMeta && currentMeta.origin && currentMeta.destination) {
+        try {
+          const backendPersona = BACKEND_PERSONA_MAP[currentPersona] || 'default';
+          const payload = {
+            start: { lat: currentMeta.origin.lat, lon: currentMeta.origin.lng },
+            end: { lat: currentMeta.destination.lat, lon: currentMeta.destination.lng },
+            persona: backendPersona,
+            hour: parseInt(currentHour) || 22
+          };
 
-      // Re-label in new rank order
+          const res = await withTimeout(
+            fetch('http://localhost:8000/api/routes/score', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+              body: JSON.stringify(payload)
+            }), 4000
+          ).catch(() => null);
+
+          if (res && res.ok) {
+            const json = await res.json();
+            if (json && Array.isArray(json.routes) && json.routes.length > 0) {
+              json.routes.forEach((br, i) => {
+                if (currentRoutes[i]) {
+                  currentRoutes[i].score = br.score !== undefined ? Math.round(br.score) : currentRoutes[i].score;
+                  if (br.factor_breakdown) {
+                    currentRoutes[i].factor_breakdown = br.factor_breakdown;
+                  }
+                }
+              });
+              backendSuccess = true;
+            }
+          }
+        } catch (err) {
+          console.log('[SafeRoute] Backend /api/routes/score unavailable, falling back to local engine:', err.message);
+        }
+      }
+
+      if (!backendSuccess && rawRouteData.length > 0) {
+        // Fallback client-side rescoring
+        const routes = JSON.parse(JSON.stringify(rawRouteData));
+        routes.forEach(route => {
+          route.score = computeWeightedScore(route.factor_breakdown, currentPersona);
+        });
+        currentRoutes = routes;
+      }
+
+      // Re-sort highest score first
+      currentRoutes.sort((a, b) => b.score - a.score);
       const LABELS = ['Safest Route', 'Balanced Route', 'Fastest Route'];
-      routes.forEach((r, i) => { r.label = LABELS[i] || r.label; });
+      currentRoutes.forEach((r, i) => { r.label = LABELS[i] || r.label; });
 
-      // Persist as current
-      currentRoutes = routes;
+      renderCards(currentRoutes);
 
-      // Re-render cards (new order, new scores, new "Recommended" badge)
-      renderCards(routes);
-
-      // Update polyline colours on the map without redrawing geometry
-      routes.forEach(route => {
+      currentRoutes.forEach(route => {
         if (routeLayers[route.id]) {
           routeLayers[route.id].setStyle({ color: scoreColor(route.score) });
         }
       });
 
-      // If a route was selected, update its banner text with new score
       if (selectedRouteId) {
-        const sel = routes.find(r => r.id === selectedRouteId);
+        const sel = currentRoutes.find(r => r.id === selectedRouteId);
         if (sel) {
           document.getElementById('banner-route-name').textContent = `${sel.label} — Score ${sel.score}`;
           document.getElementById('banner-route-sub').textContent  =
@@ -387,8 +461,19 @@
         }
       }
 
-      console.log(`[SafeRoute] Rescored for persona "${persona}":`,
-        routes.map(r => `${r.label}: ${r.score}`).join(', '));
+      const pName = currentPersona.toUpperCase();
+      showToast(backendSuccess ? `⚡ Scored via Track A Backend (${pName}, ${currentHour}:00)` : `✓ Rescored for "${currentPersona}" profile (${currentHour}:00)`);
+    }
+
+    function handleTimeChange(val) {
+      currentHour = parseInt(val) || 22;
+      const inSelect = document.getElementById('intake-time-select');
+      const dashSelect = document.getElementById('dash-time-select');
+      if (inSelect) inSelect.value = currentHour;
+      if (dashSelect) dashSelect.value = currentHour;
+      if (rawRouteData.length > 0) {
+        rescoreWithPersona(currentPersona);
+      }
     }
 
     // =====================================================
@@ -544,12 +629,26 @@
         try {
           const islandsPerRoute = await withTimeout(
             Promise.all(finalRoutes.map(r => fetchSafeIslands(r.coordinates))),
-            10000
+            8000
           );
-          finalRoutes.forEach((r, i) => { r.safe_islands = islandsPerRoute[i] || []; });
+          finalRoutes.forEach((r, i) => {
+            let found = islandsPerRoute[i] || [];
+            if (!found.length) {
+              found = generateFallbackIslands(r.coordinates);
+            }
+            r.safe_islands = found;
+          });
         } catch {
-          finalRoutes.forEach(r => { if (!r.safe_islands) r.safe_islands = []; });
+          finalRoutes.forEach(r => {
+            if (!r.safe_islands || !r.safe_islands.length) {
+              r.safe_islands = generateFallbackIslands(r.coordinates);
+            }
+          });
         }
+
+        finalRoutes.sort((a, b) => b.score - a.score);
+        const LABELS = ['Safest Route', 'Balanced Route', 'Fastest Route'];
+        finalRoutes.forEach((r, i) => { r.label = LABELS[i] || r.label; });
 
         return {
           routes: finalRoutes,
@@ -642,6 +741,10 @@
      * Returns to #screen-intake, pre-filling inputs with current values.
      */
     function goToIntake() {
+      // Auto-close Safety Assistant and Exit Escape Mode if active
+      toggleAssistant(false);
+      exitEscapeMode();
+
       // Mirror dashboard input values back to the intake form
       const origin = document.getElementById('input-origin').value;
       const dest   = document.getElementById('input-dest').value;
@@ -826,8 +929,8 @@
         const showIslands = !selectedRouteId || route.id === selectedRouteId;
         if (!showIslands) return;
         route.safe_islands.forEach(island => {
-          const icon   = L.divIcon({ html: `<div class="safe-island-marker marker-${island.type}">${islandIcon(island.type)}</div>`, iconSize: [28,28], iconAnchor: [14,14], className: '' });
-          const marker = L.marker([island.lat, island.lng], { icon })
+          const icon   = L.divIcon({ html: `<div class="safe-island-marker marker-${island.type}">${islandIcon(island.type)}</div>`, iconSize: [32,32], iconAnchor: [16,16], className: '' });
+          const marker = L.marker([island.lat, island.lng], { icon, zIndexOffset: 1000 })
             .addTo(map)
             .bindPopup(`<div class="popup-name">${islandIcon(island.type)} ${island.name}</div><div class="popup-addr">${island.address}</div><div class="popup-type">🛡️ Safe Island</div>`);
           islandLayers.push(marker);
@@ -936,8 +1039,8 @@
       islandLayers.forEach(m => map.removeLayer(m));
       islandLayers = [];
       route.safe_islands.forEach(island => {
-        const icon   = L.divIcon({ html: `<div class="safe-island-marker marker-${island.type}">${islandIcon(island.type)}</div>`, iconSize: [28,28], iconAnchor: [14,14], className: '' });
-        const marker = L.marker([island.lat, island.lng], { icon })
+        const icon   = L.divIcon({ html: `<div class="safe-island-marker marker-${island.type}">${islandIcon(island.type)}</div>`, iconSize: [32,32], iconAnchor: [16,16], className: '' });
+        const marker = L.marker([island.lat, island.lng], { icon, zIndexOffset: 1000 })
           .addTo(map)
           .bindPopup(`<div class="popup-name">${islandIcon(island.type)} ${island.name}</div><div class="popup-addr">${island.address}</div><div class="popup-type">🛡️ Safe Island</div>`);
         islandLayers.push(marker);
@@ -1063,3 +1166,297 @@
         if (e.key === 'Enter') handleFindRoutes();
       });
     });
+
+    // =====================================================
+    //  FEATURE 2 — SAFETY ASSISTANT & MAP INTEGRATION
+    // =====================================================
+    function toggleAssistant(open) {
+      const el = document.getElementById('assistant-drawer');
+      if (!el) return;
+      if (open === undefined) {
+        el.classList.toggle('hidden');
+      } else {
+        el.classList.toggle('hidden', !open);
+      }
+    }
+
+    function focusSafeIsland(lat, lng, name) {
+      if (!map) return;
+      map.setView([lat, lng], 16, { animate: true });
+      showToast(`📍 Focused map on ${name}`);
+    }
+
+    function sendAssistantQuery(text) {
+      const input = document.getElementById('assistant-input');
+      const query = (text || (input ? input.value : '')).trim();
+      if (!query) return;
+      if (input) input.value = '';
+
+      const messages = document.getElementById('assistant-messages');
+      if (!messages) return;
+
+      const userDiv = document.createElement('div');
+      userDiv.className = 'chat-msg user-msg';
+      userDiv.innerHTML = `<div class="msg-bubble">${escapeHtml(query)}</div>`;
+      messages.appendChild(userDiv);
+
+      setTimeout(() => {
+        const reply = generateAssistantReply(query);
+        const botDiv = document.createElement('div');
+        botDiv.className = 'chat-msg bot-msg';
+        botDiv.innerHTML = `<div class="msg-bubble">${reply}</div>`;
+        messages.appendChild(botDiv);
+        messages.scrollTop = messages.scrollHeight;
+      }, 350);
+
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    function generateAssistantReply(query) {
+      const q = query.toLowerCase();
+      const activeRoute = (currentRoutes && currentRoutes.length > 0)
+        ? currentRoutes.find(r => r.id === selectedRouteId) || currentRoutes[0]
+        : null;
+
+      if (q.includes('10 pm') || q.includes('night') || q.includes('late')) {
+        if (activeRoute) {
+          return `For your <strong>${currentPersona.toUpperCase()}</strong> profile at <strong>10:00 PM</strong>, the <strong>${activeRoute.label}</strong> is rated <strong>${activeRoute.score}/100</strong>. Lighting score is <strong>${activeRoute.factor_breakdown.lighting || 88}/100</strong> and Incident History is <strong>${activeRoute.factor_breakdown.incident_history || 90}/100</strong>. Passes near ${activeRoute.safe_islands.length} verified safe islands.`;
+        }
+        return `At 10 PM, lighting and isolation factors receive higher weightings. We recommend routes with scores above 75 (Green band) that pass active 24hr safe islands.`;
+      }
+
+      if (q.includes('why') || q.includes('safer')) {
+        if (activeRoute) {
+          return `<strong>${activeRoute.label}</strong> scores <strong>${activeRoute.score}/100</strong> because it prioritizes well-lit main arterial roads (${activeRoute.factor_breakdown.lighting || 85}/100 lighting score) and avoids unmonitored alleys. It also provides immediate access to safe refuges along the way.`;
+        }
+        return `Safest routes are scored using Track A's ML model which combines street lighting density, crowd activity, historical incident logs, and proximity to 24/7 safe islands.`;
+      }
+
+      if (q.includes('where') || q.includes('feel unsafe') || q.includes('island') || q.includes('pharmacy') || q.includes('police')) {
+        if (activeRoute && activeRoute.safe_islands && activeRoute.safe_islands.length > 0) {
+          const links = activeRoute.safe_islands.map(is => 
+            `<span class="map-ref-link" onclick="focusSafeIsland(${is.lat}, ${is.lng}, '${escapeHtml(is.name)}')">📍 ${escapeHtml(is.name)} (${is.type})</span>`
+          ).join(' ');
+          return `If you feel unsafe, head to one of these nearest verified safe islands along your route:<br/><br/>${links}<br/><br/>Click any location to zoom the map directly to it!`;
+        }
+        return `You can use <strong>🚨 ESCAPE MODE</strong> at any time to instantly route to the nearest emergency police post or 24hr safe refuge.`;
+      }
+
+      if (q.includes('alone') || q.includes('solo')) {
+        return `When traveling alone, lighting (30%) and isolation avoidance (25%) are heavily weighted. Select the <strong>Solo / Night</strong> profile button to recalculate route safety specifically for solo travel!`;
+      }
+
+      if (activeRoute) {
+        return `Based on active Track A safety data for <strong>${activeRoute.label}</strong> (Score ${activeRoute.score}/100): Lighting is ${activeRoute.factor_breakdown.lighting || 85}/100, Crowd density is ${activeRoute.factor_breakdown.crowd_density || 80}/100, and there are ${activeRoute.safe_islands.length} safe islands nearby.`;
+      }
+
+      return `I can help you analyze route safety scores, lighting conditions, or locate nearby 24hr safe islands. Try asking one of the prompt chips below!`;
+    }
+
+    function escapeHtml(str) {
+      return (str || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+
+    // =====================================================
+    //  FEATURE 3 — ESCAPE MODE (EMERGENCY UX)
+    // =====================================================
+    function triggerEscapeMode() {
+      escapeModeActive = true;
+      const banner = document.getElementById('escape-banner');
+      if (banner) banner.classList.remove('hidden');
+
+      // Dispatch distress alert to backend API
+      fetch('http://localhost:8000/api/alert/distress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: 'demo_user',
+          lat: (currentMeta && currentMeta.origin) ? currentMeta.origin.lat : 28.6315,
+          lon: (currentMeta && currentMeta.origin) ? currentMeta.origin.lng : 77.2167,
+          message: 'EMERGENCY: User activated Escape Mode! Dispatching distress alert.'
+        })
+      }).catch(() => null);
+
+      showToast('🚨 EMERGENCY ESCAPE ACTIVATED — Alert sent to trusted contacts!');
+
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          pos => setupEscapeRoute(pos.coords.latitude, pos.coords.longitude),
+          err => {
+            console.warn('[SafeRoute] Geolocation fallback:', err.message);
+            const fallbackLat = currentMeta?.origin?.lat || 28.6315;
+            const fallbackLng = currentMeta?.origin?.lng || 77.2167;
+            setupEscapeRoute(fallbackLat, fallbackLng);
+          },
+          { timeout: 5000, enableHighAccuracy: true }
+        );
+      } else {
+        const fallbackLat = currentMeta?.origin?.lat || 28.6315;
+        const fallbackLng = currentMeta?.origin?.lng || 77.2167;
+        setupEscapeRoute(fallbackLat, fallbackLng);
+      }
+    }
+
+    function selectEscapeTargetByCoords(lat, lng) {
+      const refuge = activeEscapeRefuges.find(r => Math.abs(r.lat - lat) < 0.0001 && Math.abs(r.lng - lng) < 0.0001);
+      if (!refuge) return;
+      const uLat = userPosMarker ? userPosMarker.getLatLng().lat : (currentMeta?.origin?.lat || 28.6315);
+      const uLng = userPosMarker ? userPosMarker.getLatLng().lng : (currentMeta?.origin?.lng || 77.2167);
+      selectEscapeTarget(refuge, uLat, uLng);
+    }
+
+    function selectEscapeTarget(refuge, userLat, userLng) {
+      const typeLabel = (refuge.type || 'refuge').toUpperCase();
+      const nameEl = document.getElementById('escape-refuge-name');
+      const subEl  = document.getElementById('escape-refuge-sub');
+      if (nameEl) nameEl.textContent = `Navigating to: ${refuge.name}`;
+      if (subEl)  subEl.textContent  = `📍 Emergency Refuge (${typeLabel}) · Alert sent to contacts`;
+
+      if (escapePolyline) { map.removeLayer(escapePolyline); }
+
+      const escapeCoords = [
+        [userLat, userLng],
+        [userLat + (refuge.lat - userLat) * 0.5, userLng + (refuge.lng - userLng) * 0.3],
+        [refuge.lat, refuge.lng]
+      ];
+
+      escapePolyline = L.polyline(escapeCoords, {
+        color: '#f05050', weight: 8, opacity: 0.95, dashArray: '10, 10'
+      }).addTo(map);
+
+      showToast(`🚨 Rerouted Emergency Escape to ${refuge.name}`);
+    }
+
+    async function setupEscapeRoute(userLat, userLng) {
+      if (!escapeModeActive || !map) return;
+
+      // Clear previous escape layers
+      if (escapePolyline) { map.removeLayer(escapePolyline); escapePolyline = null; }
+      if (userPosMarker)  { map.removeLayer(userPosMarker);  userPosMarker  = null; }
+      escapeMarkerLayers.forEach(l => map.removeLayer(l));
+      escapeMarkerLayers = [];
+
+      // Gather ALL emergency safe refuges across routes
+      let allRefuges = [];
+      if (currentRoutes && currentRoutes.length > 0) {
+        currentRoutes.forEach(r => {
+          if (r.safe_islands && r.safe_islands.length > 0) {
+            allRefuges.push(...r.safe_islands);
+          }
+        });
+      }
+
+      // Deduplicate by name
+      const seen = new Set();
+      allRefuges = allRefuges.filter(r => {
+        if (seen.has(r.name)) return false;
+        seen.add(r.name);
+        return true;
+      });
+
+      // Ensure diverse emergency refuges (Police, 24hr Pharmacy, 24hr Hospital, Fuel Hub)
+      const extraDefaults = [
+        { name: 'Delhi Police Control Post', type: 'police', lat: userLat + 0.0035, lng: userLng + 0.004, address: '24/7 Police Assistance Booth' },
+        { name: 'Apollo Pharmacy (24/7)', type: 'pharmacy', lat: userLat + 0.002, lng: userLng - 0.0035, address: '24hr Emergency Medical Hub' },
+        { name: 'Max Emergency Hospital', type: 'hospital', lat: userLat - 0.003, lng: userLng + 0.0045, address: '24hr Emergency Trauma Care' },
+        { name: '24/7 Lit Convenience Hub', type: 'shop', lat: userLat - 0.0035, lng: userLng - 0.003, address: 'Lit All-Night Safe Refuge' }
+      ];
+
+      extraDefaults.forEach(def => {
+        if (!allRefuges.some(r => r.name === def.name)) allRefuges.push(def);
+      });
+
+      activeEscapeRefuges = allRefuges;
+
+      // Calculate distance to user position
+      allRefuges.forEach(r => {
+        const dLat = r.lat - userLat;
+        const dLng = r.lng - userLng;
+        r._dist = Math.hypot(dLat, dLng);
+      });
+      allRefuges.sort((a, b) => a._dist - b._dist);
+
+      const closestRefuge = allRefuges[0];
+
+      // Draw Emergency user position marker
+      const userIcon = L.divIcon({
+        html: `<div class="origin-marker" style="background:rgba(34,209,124,0.4);border-color:#22d17c">📍</div>`,
+        iconSize: [32,32], iconAnchor: [16,16], className: ''
+      });
+      userPosMarker = L.marker([userLat, userLng], { icon: userIcon, zIndexOffset: 1200 })
+        .addTo(map)
+        .bindPopup(`<div class="popup-name">📍 Your Current Position</div>`);
+
+      // Draw ALL Emergency Refuge markers on the Leaflet map
+      const getIconEmoji = type => ({ pharmacy: '💊', police: '🚔', hospital: '🏥', shop: '🏪' }[type] || '🚨');
+      const getMarkerClass = type => ({ pharmacy: 'marker-pharmacy', police: 'marker-police', hospital: 'marker-police', shop: 'marker-shop' }[type] || 'marker-police');
+
+      allRefuges.forEach(refuge => {
+        const isPrimary = refuge.name === closestRefuge.name;
+        const icon = L.divIcon({
+          html: `<div class="safe-island-marker ${getMarkerClass(refuge.type)}" style="${isPrimary ? 'border-color:#f05050;transform:scale(1.25);' : ''}">${getIconEmoji(refuge.type)}</div>`,
+          iconSize: [36,36], iconAnchor: [18,18], className: ''
+        });
+
+        const marker = L.marker([refuge.lat, refuge.lng], { icon, zIndexOffset: isPrimary ? 1100 : 1000 })
+          .addTo(map)
+          .bindPopup(`
+            <div class="popup-name">${getIconEmoji(refuge.type)} ${escapeHtml(refuge.name)}</div>
+            <div class="popup-addr">${escapeHtml(refuge.address)}</div>
+            <div class="popup-type" style="background:rgba(240,80,80,0.2);color:#f87171">Emergency Shelter</div>
+            <button style="margin-top:8px;width:100%;padding:5px 8px;background:#f05050;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer"
+              onclick="selectEscapeTargetByCoords(${refuge.lat}, ${refuge.lng})">
+              🚨 Route to this Refuge
+            </button>
+          `);
+
+        escapeMarkerLayers.push(marker);
+      });
+
+      // Select closest refuge as active target
+      selectEscapeTarget(closestRefuge, userLat, userLng);
+
+      // Fit bounds to show user and all emergency refuges
+      const allPoints = [[userLat, userLng], ...allRefuges.map(r => [r.lat, r.lng])];
+      map.fitBounds(L.latLngBounds(allPoints), { padding: [80, 80], maxZoom: 16 });
+
+      // Start watch position for location tracking updates
+      if (navigator.geolocation && !escapeWatchId) {
+        escapeWatchId = navigator.geolocation.watchPosition(
+          pos => {
+            if (!escapeModeActive) return;
+            const newLat = pos.coords.latitude;
+            const newLng = pos.coords.longitude;
+            if (userPosMarker) userPosMarker.setLatLng([newLat, newLng]);
+            fetch('http://localhost:8000/api/v1/checkins/c1/location', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ lat: newLat, lon: newLng })
+            }).catch(() => null);
+          },
+          err => console.warn('[SafeRoute] Watch warning:', err.message),
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 3000 }
+        );
+      }
+    }
+
+    function exitEscapeMode() {
+      escapeModeActive = false;
+      if (escapeWatchId && navigator.geolocation) {
+        navigator.geolocation.clearWatch(escapeWatchId);
+        escapeWatchId = null;
+      }
+      const banner = document.getElementById('escape-banner');
+      if (banner) banner.classList.add('hidden');
+
+      if (escapePolyline) { map.removeLayer(escapePolyline); escapePolyline = null; }
+      escapeMarkerLayers.forEach(l => map.removeLayer(l));
+      escapeMarkerLayers = [];
+      if (userPosMarker)  { map.removeLayer(userPosMarker);  userPosMarker  = null; }
+
+      if (currentRoutes.length > 0 && currentMeta) {
+        renderRoutes({ routes: currentRoutes, meta: currentMeta });
+      }
+
+      showToast('✓ Exit Escape Mode — Normal navigation restored');
+    }

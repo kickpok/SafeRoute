@@ -621,16 +621,17 @@ html, body {
 
 /* ── LEAFLET CUSTOM MARKERS & POPUPS ────────────────────────── */
 .safe-island-marker {
-  background: var(--bg-card); border: 2px solid; border-radius: 50%;
-  width: 28px !important; height: 28px !important;
+  background: #1e1e2d; border: 2.5px solid; border-radius: 50%;
+  width: 32px !important; height: 32px !important;
   display: flex; align-items: center; justify-content: center;
-  font-size: 13px; box-shadow: 0 2px 8px rgba(0,0,0,0.5);
-  transition: transform 0.2s;
+  font-size: 15px; box-shadow: 0 4px 14px rgba(0,0,0,0.75);
+  transition: transform 0.2s, box-shadow 0.2s;
+  z-index: 1000 !important;
 }
-.safe-island-marker:hover { transform: scale(1.2); }
-.marker-pharmacy { border-color: #34d399; }
-.marker-police   { border-color: #60a5fa; }
-.marker-shop     { border-color: #fbbf24; }
+.safe-island-marker:hover { transform: scale(1.25); box-shadow: 0 6px 20px rgba(0,0,0,0.9); }
+.marker-pharmacy { border-color: #34d399; background: #064e3b; }
+.marker-police   { border-color: #60a5fa; background: #1e3a8a; }
+.marker-shop     { border-color: #fbbf24; background: #78350f; }
 
 .origin-marker, .dest-marker {
   width: 32px !important; height: 32px !important;
@@ -792,3 +793,175 @@ html, body {
   }
   #empty-state.hidden { transform: translate(-50%, 50%) !important; }
 }
+
+/* ================================================================
+   NEW INTEGRATED FEATURES — ASSISTANT, ESCAPE MODE, TIME SELECT
+================================================================ */
+.action-header-bar {
+  display: flex; gap: 8px; margin-top: 10px; margin-bottom: 8px;
+}
+.header-action-btn {
+  flex: 1; padding: 8px 12px; border-radius: var(--radius-sm);
+  font-size: 11px; font-weight: 700; border: 1px solid;
+  cursor: pointer; transition: all 0.2s; text-align: center;
+  font-family: 'Inter', sans-serif;
+}
+.assistant-trigger-btn {
+  background: rgba(108,99,255,0.15); border-color: rgba(108,99,255,0.4);
+  color: #a78bfa;
+}
+.assistant-trigger-btn:hover {
+  background: rgba(108,99,255,0.3); border-color: #6c63ff; color: #fff;
+}
+.escape-trigger-btn {
+  background: rgba(240,80,80,0.18); border-color: rgba(240,80,80,0.45);
+  color: #f87171;
+}
+.escape-trigger-btn:hover {
+  background: rgba(240,80,80,0.35); border-color: #f05050; color: #fff;
+  box-shadow: 0 0 12px rgba(240,80,80,0.5);
+}
+
+.dashboard-controls-row {
+  display: flex; gap: 8px; align-items: center; justify-content: space-between;
+  margin-top: 8px;
+}
+.dash-time-select, .time-select {
+  background: var(--bg-card); border: 1px solid var(--border-hi);
+  border-radius: var(--radius-sm); color: var(--text-primary);
+  font-size: 11px; padding: 6px 10px; cursor: pointer;
+  outline: none; font-family: 'Inter', sans-serif;
+}
+.field-label-row {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;
+}
+.time-picker-wrapper { display: flex; align-items: center; gap: 6px; }
+.time-picker-icon { font-size: 13px; }
+
+/* ── EMERGENCY ESCAPE MODE BANNER ────────────────────────────── */
+.escape-banner {
+  position: absolute; top: 16px; left: 16px; right: 16px; z-index: 900;
+  background: rgba(20, 10, 14, 0.94); backdrop-filter: blur(12px);
+  border: 2px solid #f05050; border-radius: var(--radius-lg);
+  padding: 14px 18px; box-shadow: 0 8px 32px rgba(240,80,80,0.4);
+  animation: pulseEscapeBorder 2s infinite ease-in-out;
+}
+.escape-banner.hidden { display: none !important; }
+@keyframes pulseEscapeBorder {
+  0%, 100% { border-color: #f05050; box-shadow: 0 0 16px rgba(240,80,80,0.4); }
+  50%      { border-color: #ff8888; box-shadow: 0 0 28px rgba(240,80,80,0.8); }
+}
+.escape-banner-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 10px;
+}
+.escape-badge {
+  background: #f05050; color: #fff; font-size: 11px; font-weight: 800;
+  letter-spacing: 0.8px; padding: 3px 10px; border-radius: 999px;
+}
+.escape-pulse-tag {
+  display: flex; align-items: center; gap: 6px; font-size: 10px;
+  color: #4ade80; font-weight: 600;
+}
+.pulse-dot {
+  width: 8px; height: 8px; background: #22d17c; border-radius: 50%;
+  animation: blinkDot 1s infinite;
+}
+@keyframes blinkDot { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+.escape-banner-body {
+  display: flex; justify-content: space-between; align-items: center; gap: 14px;
+}
+.escape-target-card { display: flex; align-items: center; gap: 12px; }
+.escape-icon {
+  font-size: 26px; background: rgba(240,80,80,0.2); padding: 8px;
+  border-radius: 12px; border: 1px solid rgba(240,80,80,0.4);
+}
+.escape-title { font-size: 14px; font-weight: 700; color: #fff; }
+.escape-sub   { font-size: 11px; color: #fca5a5; }
+.escape-exit-btn {
+  background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3);
+  color: #fff; font-size: 12px; font-weight: 600; padding: 8px 14px;
+  border-radius: var(--radius-sm); cursor: pointer; transition: background 0.2s;
+  white-space: nowrap;
+}
+.escape-exit-btn:hover { background: rgba(255,255,255,0.25); }
+
+/* ── SAFETY ASSISTANT DRAWER ─────────────────────────────────── */
+.assistant-drawer {
+  position: fixed; right: 20px; bottom: 20px; width: 360px; height: 520px;
+  max-width: calc(100vw - 40px); max-height: calc(100vh - 40px);
+  background: var(--bg-elevated); border: 1px solid var(--border-hi);
+  border-radius: var(--radius-xl); box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+  z-index: 9999; display: flex; flex-direction: column; overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.assistant-drawer.hidden {
+  opacity: 0; pointer-events: none; transform: translateY(20px) scale(0.95);
+}
+.assistant-header {
+  padding: 14px 18px; background: rgba(108,99,255,0.12);
+  border-bottom: 1px solid var(--border); display: flex;
+  justify-content: space-between; align-items: center;
+}
+.assistant-title { display: flex; align-items: center; gap: 10px; }
+.assistant-bot-icon { font-size: 22px; }
+.assistant-sub { font-size: 10px; color: var(--text-secondary); }
+.assistant-close-btn {
+  background: transparent; border: none; color: var(--text-muted);
+  font-size: 16px; cursor: pointer; padding: 4px; transition: color 0.2s;
+}
+.assistant-close-btn:hover { color: #fff; }
+.assistant-messages {
+  flex: 1; padding: 14px 16px; overflow-y: auto; display: flex;
+  flex-direction: column; gap: 12px;
+}
+.chat-msg { display: flex; flex-direction: column; max-width: 86%; }
+.bot-msg  { align-self: flex-start; }
+.user-msg { align-self: flex-end; }
+.msg-bubble {
+  padding: 10px 14px; border-radius: 14px; font-size: 12px; line-height: 1.5;
+}
+.bot-msg .msg-bubble {
+  background: var(--bg-card); border: 1px solid var(--border);
+  color: var(--text-primary); border-bottom-left-radius: 4px;
+}
+.user-msg .msg-bubble {
+  background: var(--accent); color: #fff; border-bottom-right-radius: 4px;
+}
+.map-ref-link {
+  display: inline-block; background: rgba(52,211,153,0.15); border: 1px solid rgba(52,211,153,0.4);
+  color: #34d399; font-weight: 600; padding: 2px 7px; border-radius: 999px;
+  cursor: pointer; margin: 4px 2px 0 0; font-size: 11px;
+}
+.map-ref-link:hover { background: rgba(52,211,153,0.3); }
+
+.assistant-prompt-chips {
+  padding: 8px 12px; display: flex; gap: 6px; overflow-x: auto;
+  border-top: 1px solid var(--border); background: var(--bg-surface);
+}
+.prompt-chip {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 999px; padding: 5px 10px; font-size: 10px; color: var(--text-secondary);
+  white-space: nowrap; cursor: pointer; transition: all 0.2s;
+  font-family: 'Inter', sans-serif;
+}
+.prompt-chip:hover {
+  border-color: var(--accent-light); color: var(--accent-light);
+  background: rgba(108,99,255,0.1);
+}
+.assistant-input-bar {
+  padding: 10px 12px; border-top: 1px solid var(--border);
+  display: flex; gap: 8px; background: var(--bg-surface);
+}
+.assistant-input-bar input {
+  flex: 1; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 8px 12px; color: var(--text-primary);
+  font-size: 12px; font-family: 'Inter', sans-serif; outline: none;
+}
+.assistant-input-bar input:focus { border-color: var(--accent); }
+.assistant-input-bar button {
+  background: var(--accent); border: none; border-radius: var(--radius-sm);
+  color: #fff; font-size: 11px; font-weight: 600; padding: 8px 14px;
+  cursor: pointer; transition: background 0.2s;
+}
+.assistant-input-bar button:hover { background: var(--accent-light); }
