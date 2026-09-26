@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse
 
 from app.routes import router
 from app.safety_routes import router as safety_router
+from app.scoring_routes import router as scoring_router
 from app import services
 
 # ── Load config ─────────────────────────────────────────────────────
@@ -56,6 +57,7 @@ app.add_middleware(
 # ── Register routes ─────────────────────────────────────────────────
 app.include_router(router)
 app.include_router(safety_router)
+app.include_router(scoring_router)
 
 
 # ── Health & Demo Readiness check ───────────────────────────────────

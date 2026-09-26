@@ -37,6 +37,7 @@ class AlertType(str, Enum):
     """Types of safety alerts the backend can generate."""
     CHECKIN_OVERDUE = "checkin_overdue"
     ETA_DEVIATION   = "eta_deviation"   # foundation for Phase 3 deviation detection
+    DISTRESS        = "distress"        # Phase 5/Track A distress panic alert
 
 
 class AlertStatus(str, Enum):

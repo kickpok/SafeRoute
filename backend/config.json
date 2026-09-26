@@ -5,6 +5,8 @@
   "port": 8000,
   "cors_origins": ["*"],
   "debug": true,
+  "osrm_base_url": "http://router.project-osrm.org",
+  "sqlite_db_path": "incidents.db",
   "deviation_threshold_meters": 200.0,
   "eta_delay_threshold_minutes": 5.0,
   "notification_provider": "mock",

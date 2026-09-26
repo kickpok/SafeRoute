@@ -73,22 +73,38 @@ def point_to_segment_distance(
     return haversine_distance(p_lat, p_lng, closest_lat, closest_lng)
 
 
-def min_distance_to_route(lat: float, lng: float, coordinates: Sequence[Coordinate]) -> float:
+def _extract_lat_lng(pt: Any) -> tuple[float, float]:
+    """Extract (lat, lon) tuple from Coordinate, dict, or list/tuple."""
+    if hasattr(pt, "lat") and hasattr(pt, "lng"):
+        return float(pt.lat), float(pt.lng)
+    if hasattr(pt, "lat") and hasattr(pt, "lon"):
+        return float(pt.lat), float(pt.lon)
+    if isinstance(pt, dict):
+        lat = pt.get("lat")
+        lng = pt.get("lng") if "lng" in pt else pt.get("lon")
+        return float(lat), float(lng)
+    if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+        return float(pt[0]), float(pt[1])
+    raise ValueError(f"Cannot extract lat/lng from {pt}")
+
+
+def min_distance_to_route(lat: float, lng: float, coordinates: Sequence[Any]) -> float:
     """
     Calculate the shortest distance (in meters) from a coordinate to any segment
-    in the route polyline.
+    in the route polyline. Supports Coordinate instances, [lat, lon] pairs, or dicts.
     """
     if not coordinates:
         return 0.0
 
     if len(coordinates) == 1:
-        return haversine_distance(lat, lng, coordinates[0].lat, coordinates[0].lng)
+        c_lat, c_lng = _extract_lat_lng(coordinates[0])
+        return haversine_distance(lat, lng, c_lat, c_lng)
 
     min_dist = float("inf")
     for i in range(len(coordinates) - 1):
-        a = coordinates[i]
-        b = coordinates[i + 1]
-        dist = point_to_segment_distance(lat, lng, a.lat, a.lng, b.lat, b.lng)
+        a_lat, a_lng = _extract_lat_lng(coordinates[i])
+        b_lat, b_lng = _extract_lat_lng(coordinates[i + 1])
+        dist = point_to_segment_distance(lat, lng, a_lat, a_lng, b_lat, b_lng)
         if dist < min_dist:
             min_dist = dist
 
