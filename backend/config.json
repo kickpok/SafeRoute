@@ -1,0 +1,12 @@
+{
+  "app_name": "SafeRoute API",
+  "version": "0.1.0",
+  "host": "0.0.0.0",
+  "port": 8000,
+  "cors_origins": ["*"],
+  "debug": true,
+  "deviation_threshold_meters": 200.0,
+  "eta_delay_threshold_minutes": 5.0,
+  "notification_provider": "mock",
+  "demo_mode": true
+}
