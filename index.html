@@ -2,18 +2,10 @@
   =============================================================================
   SafeRoute — Safety-First Route Planner
   =============================================================================
-  IMPORTANT: Local Development & Server Requirement
-  - This app must be served over HTTP/HTTPS, NOT opened directly via file://
-  - Opening via file:// causes referrer and CORS policy restrictions that block
-    tile loading (CartoDB/OSM) and external routing/POI APIs (OSRM, Overpass, Nominatim).
-  
   HOW TO RUN:
-    1. Start the backend (in SafeRoute/backend):
-       uvicorn main:app --port 8000
-    2. In your terminal (in this directory), start the frontend:
-       python3 -m http.server 3000
-    3. Open your browser at:
-       http://localhost:3000/index.html
+    1. Start the backend:  uvicorn main:app --port 8000  (SafeRoute/backend/)
+    2. Start frontend:     python3 -m http.server 3000   (SafeRoute/)
+    3. Open:              http://localhost:3000/index.html
   =============================================================================
 -->
 <!DOCTYPE html>
@@ -24,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>SafeRoute — Safety-First Route Planner</title>
   <meta name="description"
-    content="SafeRoute helps you find the safest route to your destination in Delhi NCR, scoring paths by lighting, crowd density, incident history and more." />
+    content="SafeRoute helps you find the safest pedestrian route, scored by lighting, crowd density, incident history and more." />
 
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -33,7 +25,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700;800&display=swap"
     rel="stylesheet" />
 
   <link rel="stylesheet" href="style.css" />
@@ -41,120 +33,251 @@
 
 <body>
 
-  <div id="app">
-    <!-- SIDEBAR (doubles as top section on mobile) -->
-    <div id="sidebar">
+  <!-- ============================================================
+       SCREEN 1 — INTAKE  (#screen-intake)
+       Shown on page load. Hidden once routes are found.
+  ============================================================ -->
+  <div id="screen-intake">
 
-      <!-- HEADER -->
-      <div id="header">
-        <div class="header-inner">
-          <div class="logo">🛡️</div>
-          <div class="brand">
-            <h1>SafeRoute</h1>
-            <p>Safety-first navigation</p>
-          </div>
-        </div>
-
-        <!-- PERSONA SELECTOR -->
-        <div id="persona-strip" role="group" aria-label="Travel persona">
-          <button class="persona-btn active" id="persona-solo" data-persona="solo" onclick="selectPersona(this)">
-            <span class="icon">🚶</span> Solo / Night
-          </button>
-          <button class="persona-btn" id="persona-kids" data-persona="kids" onclick="selectPersona(this)">
-            <span class="icon">👨‍👧</span> With Kids
-          </button>
-          <button class="persona-btn" id="persona-shift" data-persona="shift" onclick="selectPersona(this)">
-            <span class="icon">🌙</span> Late Shift
-          </button>
-          <button class="persona-btn" id="persona-elderly" data-persona="elderly" onclick="selectPersona(this)">
-            <span class="icon">🧓</span> Elderly
-          </button>
-        </div>
-      </div>
-
-      <!-- ROUTE FORM -->
-      <div id="route-form">
-        <div class="input-row">
-          <div class="input-wrapper">
-            <span class="input-icon">📍</span>
-            <input class="route-input" id="input-origin" type="text" placeholder="From: e.g. Connaught Place"
-              value="Connaught Place, Delhi" aria-label="Starting location" />
-          </div>
-        </div>
-        <div class="input-row">
-          <div class="input-wrapper">
-            <span class="input-icon">🏁</span>
-            <input class="route-input" id="input-dest" type="text" placeholder="To: e.g. Lajpat Nagar"
-              value="Lajpat Nagar, Delhi" aria-label="Destination" />
-          </div>
-          <button id="find-btn" onclick="handleFindRoutes()" aria-label="Find safe routes">
-            🔍 Find Safe Routes
-          </button>
-        </div>
-      </div>
-
-      <!-- ROUTE CARDS BOTTOM SHEET -->
-      <div id="bottom-sheet" class="hidden" aria-live="polite">
-        <div class="sheet-handle"></div>
-        <div id="route-cards"></div>
-      </div>
-
-    </div><!-- /sidebar -->
-
-    <!-- MAP -->
-    <div id="map-container">
-      <div id="map"></div>
-
-      <!-- Legend -->
-      <div id="map-legend">
-        <div class="legend-title">Safe Islands</div>
-        <div class="legend-item">
-          <div class="legend-dot" style="background:#34d399"></div> 24hr Pharmacy
-        </div>
-        <div class="legend-item">
-          <div class="legend-dot" style="background:#60a5fa"></div> Police Post
-        </div>
-        <div class="legend-item">
-          <div class="legend-dot" style="background:#fbbf24"></div> 24hr Shop
-        </div>
-      </div>
-
-      <!-- Loading Overlay -->
-      <div id="loading-overlay">
-        <div class="spinner"></div>
-        <div class="loading-text">Scoring routes...</div>
-        <div class="loading-sub">Analyzing lighting, crowd density & safety data</div>
-      </div>
-
-      <!-- Empty State -->
-      <div id="empty-state">
-        <div class="empty-icon">🗺️</div>
-        <div class="empty-title">Ready to navigate safely</div>
-        <div class="empty-sub">Enter your start and destination above, then tap <strong>Find Safe Routes</strong> to see
-          color-coded safety scores.</div>
-      </div>
-
-      <!-- Selected route banner -->
-      <div id="selected-banner">
-        <div>
-          <div class="banner-text" id="banner-route-name">Route Selected</div>
-          <div class="banner-sub" id="banner-route-sub">Score: — · — min</div>
-        </div>
-        <button class="banner-btn" onclick="handleProceed()" id="proceed-btn">
-          Proceed →
-        </button>
-      </div>
+    <!-- Decorative background orbs -->
+    <div class="intake-bg" aria-hidden="true">
+      <div class="orb orb-1"></div>
+      <div class="orb orb-2"></div>
+      <div class="orb orb-3"></div>
     </div>
 
-  </div><!-- /app -->
+    <div class="intake-inner">
 
-  <!-- Toast -->
-  <div id="toast"></div>
+      <!-- Brand -->
+      <header class="intake-brand">
+        <div class="brand-logo" aria-hidden="true">🛡️</div>
+        <div>
+          <h1 class="brand-name">SafeRoute</h1>
+          <p class="brand-tagline">Safety-first navigation</p>
+        </div>
+      </header>
+
+      <!-- Hero text -->
+      <div class="intake-hero">
+        <p class="hero-headline">Navigate with <span class="hero-accent">confidence</span></p>
+        <p class="hero-sub">AI-powered safety scoring across lighting, crowd density,
+          and incident history — personalised to you.</p>
+      </div>
+
+      <!-- Intake form card -->
+      <div class="intake-card">
+
+        <!-- Origin -->
+        <div class="field-group">
+          <label class="field-label" for="intake-origin">📍 Starting Point</label>
+          <div class="field-input-wrap">
+            <input class="field-input" id="intake-origin" type="text"
+              placeholder="e.g. Connaught Place, Delhi"
+              value="Connaught Place, Delhi"
+              aria-label="Starting location" />
+          </div>
+        </div>
+
+        <!-- Destination -->
+        <div class="field-group">
+          <label class="field-label" for="intake-dest">🏁 Destination</label>
+          <div class="field-input-wrap">
+            <input class="field-input" id="intake-dest" type="text"
+              placeholder="e.g. Lajpat Nagar, Delhi"
+              value="Lajpat Nagar, Delhi"
+              aria-label="Destination" />
+          </div>
+        </div>
+
+        <!-- Persona -->
+        <div class="field-group">
+          <label class="field-label">👤 Travel Profile</label>
+          <div class="intake-persona-grid" id="intake-persona-grid" role="group" aria-label="Select travel persona">
+            <button class="intake-persona-btn active" id="intake-persona-solo"
+              data-persona="solo" onclick="intakeSelectPersona(this)">
+              <span class="ipb-icon">🚶</span>
+              <span class="ipb-name">Solo / Night</span>
+              <span class="ipb-desc">Late night walks</span>
+            </button>
+            <button class="intake-persona-btn" id="intake-persona-kids"
+              data-persona="kids" onclick="intakeSelectPersona(this)">
+              <span class="ipb-icon">👨‍👧</span>
+              <span class="ipb-name">With Kids</span>
+              <span class="ipb-desc">Family-safe routes</span>
+            </button>
+            <button class="intake-persona-btn" id="intake-persona-shift"
+              data-persona="shift" onclick="intakeSelectPersona(this)">
+              <span class="ipb-icon">🌙</span>
+              <span class="ipb-name">Late Shift</span>
+              <span class="ipb-desc">Post-midnight travel</span>
+            </button>
+            <button class="intake-persona-btn" id="intake-persona-elderly"
+              data-persona="elderly" onclick="intakeSelectPersona(this)">
+              <span class="ipb-icon">🧓</span>
+              <span class="ipb-name">Elderly</span>
+              <span class="ipb-desc">Accessible &amp; calm</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Error message -->
+        <div class="intake-error hidden" id="intake-error" role="alert"></div>
+
+        <!-- Submit -->
+        <button class="intake-find-btn" id="intake-find-btn" onclick="handleIntakeSubmit()">
+          🔍 Find Safe Routes
+        </button>
+
+      </div><!-- /intake-card -->
+
+      <!-- Trust indicators -->
+      <div class="intake-trust" aria-label="Data sources">
+        <span>🌐 Live road data</span>
+        <span class="trust-dot" aria-hidden="true">·</span>
+        <span>🛡️ Safety-scored</span>
+        <span class="trust-dot" aria-hidden="true">·</span>
+        <span>📍 Safe island markers</span>
+      </div>
+
+    </div><!-- /intake-inner -->
+  </div><!-- /screen-intake -->
+
+
+  <!-- ============================================================
+       SCREEN 2 — DASHBOARD  (#screen-dashboard)
+       Hidden on load. Revealed after routes are found.
+  ============================================================ -->
+  <div id="screen-dashboard" class="hidden">
+
+    <div id="app">
+
+      <!-- ── LEFT SIDEBAR / TOP-SHEET (mobile) ── -->
+      <div id="sidebar">
+
+        <!-- Sidebar header -->
+        <div id="header">
+          <div class="header-inner">
+            <!-- Back button — returns to intake screen -->
+            <button class="back-btn" id="back-btn" onclick="goToIntake()" aria-label="Edit trip">
+              ← Edit trip
+            </button>
+            <div class="logo" aria-hidden="true">🛡️</div>
+            <div class="brand">
+              <p class="brand-name-sm">SafeRoute</p>
+              <p class="brand-tag-sm">Safety-first</p>
+            </div>
+          </div>
+
+          <!-- Trip summary chips -->
+          <div class="trip-chips" id="trip-chips" aria-label="Current trip">
+            <div class="trip-chip" id="chip-origin">📍 —</div>
+            <div class="trip-arrow" aria-hidden="true">→</div>
+            <div class="trip-chip" id="chip-dest">🏁 —</div>
+          </div>
+
+          <!-- Persona strip (dashboard copy — drives live rescoring) -->
+          <div id="persona-strip" role="group" aria-label="Change travel persona">
+            <button class="persona-btn active" id="persona-solo"
+              data-persona="solo" onclick="selectPersona(this)">
+              <span class="icon">🚶</span> Solo
+            </button>
+            <button class="persona-btn" id="persona-kids"
+              data-persona="kids" onclick="selectPersona(this)">
+              <span class="icon">👨‍👧</span> Kids
+            </button>
+            <button class="persona-btn" id="persona-shift"
+              data-persona="shift" onclick="selectPersona(this)">
+              <span class="icon">🌙</span> Shift
+            </button>
+            <button class="persona-btn" id="persona-elderly"
+              data-persona="elderly" onclick="selectPersona(this)">
+              <span class="icon">🧓</span> Elderly
+            </button>
+          </div>
+        </div><!-- /header -->
+
+        <!-- Compact re-search form (dashboard) -->
+        <div id="route-form">
+          <div class="input-row">
+            <div class="input-wrapper">
+              <span class="input-icon" aria-hidden="true">📍</span>
+              <input class="route-input" id="input-origin" type="text"
+                placeholder="From…" aria-label="Starting location" />
+            </div>
+          </div>
+          <div class="input-row">
+            <div class="input-wrapper">
+              <span class="input-icon" aria-hidden="true">🏁</span>
+              <input class="route-input" id="input-dest" type="text"
+                placeholder="To…" aria-label="Destination" />
+            </div>
+            <button id="find-btn" onclick="handleFindRoutes()" aria-label="Update routes">🔍</button>
+          </div>
+        </div>
+
+        <!-- Route cards -->
+        <div id="bottom-sheet" class="hidden" aria-live="polite">
+          <div class="sheet-handle" aria-hidden="true"></div>
+          <div id="route-cards"></div>
+        </div>
+
+      </div><!-- /sidebar -->
+
+      <!-- ── MAP ── -->
+      <div id="map-container">
+        <div id="map"></div>
+
+        <!-- Safe island legend -->
+        <div id="map-legend" aria-label="Safe island legend">
+          <div class="legend-title">Safe Islands</div>
+          <div class="legend-item">
+            <div class="legend-dot" style="background:#34d399"></div> 24hr Pharmacy
+          </div>
+          <div class="legend-item">
+            <div class="legend-dot" style="background:#60a5fa"></div> Police Post
+          </div>
+          <div class="legend-item">
+            <div class="legend-dot" style="background:#fbbf24"></div> 24hr Shop
+          </div>
+        </div>
+
+        <!-- Loading overlay -->
+        <div id="loading-overlay">
+          <div class="spinner"></div>
+          <div class="loading-text">Scoring routes…</div>
+          <div class="loading-sub">Analysing lighting, crowd density &amp; safety data</div>
+        </div>
+
+        <!-- Empty state -->
+        <div id="empty-state">
+          <div class="empty-icon" aria-hidden="true">🗺️</div>
+          <div class="empty-title">Ready to navigate safely</div>
+          <div class="empty-sub">Your routes will appear here.</div>
+        </div>
+
+        <!-- Selected-route banner (mobile) -->
+        <div id="selected-banner">
+          <div>
+            <div class="banner-text" id="banner-route-name">Route Selected</div>
+            <div class="banner-sub"  id="banner-route-sub">Score: — · — min</div>
+          </div>
+          <button class="banner-btn" onclick="handleProceed()" id="proceed-btn">
+            Proceed →
+          </button>
+        </div>
+
+      </div><!-- /map-container -->
+
+    </div><!-- /app -->
+
+  </div><!-- /screen-dashboard -->
+
+  <!-- Toast notification -->
+  <div id="toast" role="status" aria-live="polite"></div>
 
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
   <script src="app.js"></script>
-</body>
 
+</body>
 </html>
