@@ -915,6 +915,20 @@ html, body {
   flex: 1; padding: 14px 16px; overflow-y: auto; display: flex;
   flex-direction: column; gap: 12px;
 }
+.assistant-messages::-webkit-scrollbar {
+  width: 5px;
+}
+.assistant-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+.assistant-messages::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+.assistant-messages::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
 .chat-msg { display: flex; flex-direction: column; max-width: 86%; }
 .bot-msg  { align-self: flex-start; }
 .user-msg { align-self: flex-end; }
@@ -938,6 +952,11 @@ html, body {
 .assistant-prompt-chips {
   padding: 8px 12px; display: flex; gap: 6px; overflow-x: auto;
   border-top: 1px solid var(--border); background: var(--bg-surface);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.assistant-prompt-chips::-webkit-scrollbar {
+  display: none;
 }
 .prompt-chip {
   background: var(--bg-card); border: 1px solid var(--border);

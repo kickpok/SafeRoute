@@ -1213,44 +1213,82 @@
     }
 
     function generateAssistantReply(query) {
-      const q = query.toLowerCase();
+      const q = query.toLowerCase().trim();
       const activeRoute = (currentRoutes && currentRoutes.length > 0)
         ? currentRoutes.find(r => r.id === selectedRouteId) || currentRoutes[0]
         : null;
 
-      if (q.includes('10 pm') || q.includes('night') || q.includes('late')) {
+      const personaLabel = (currentPersona || 'solo').toUpperCase();
+
+      // 1. Greetings & general hellos
+      if (/^(hi|hello|hey|greetings|good\s*(morning|evening|afternoon)|hey there|hi there)\b/i.test(q)) {
         if (activeRoute) {
-          return `For your <strong>${currentPersona.toUpperCase()}</strong> profile at <strong>10:00 PM</strong>, the <strong>${activeRoute.label}</strong> is rated <strong>${activeRoute.score}/100</strong>. Lighting score is <strong>${activeRoute.factor_breakdown.lighting || 88}/100</strong> and Incident History is <strong>${activeRoute.factor_breakdown.incident_history || 90}/100</strong>. Passes near ${activeRoute.safe_islands.length} verified safe islands.`;
+          return `Hello! 👋 I'm your SafeRoute Safety Assistant powered by Track A Safety Engine. Your active selection is <strong>${activeRoute.label}</strong> (Safety Score: <strong>${activeRoute.score}/100</strong>). How can I assist you? Ask about street lighting, crowd density, 10 PM travel, or nearby safe refuges!`;
+        }
+        return `Hello! 👋 I'm your SafeRoute Safety Assistant. Ask me anything about route lighting, safety scores, crowd density, or nearby 24hr safe islands!`;
+      }
+
+      // 1b. Conversational "how are you" check-ins
+      if (q.includes('how are you') || q.includes('how r u') || q.includes("how's it going") || q.includes('how do you do') || q.includes('how are u')) {
+        if (activeRoute) {
+          return `I'm doing great and ready to keep you safe! 😊 Your active route <strong>${activeRoute.label}</strong> is rated <strong>${activeRoute.score}/100</strong>. How can I help you with your journey?`;
+        }
+        return `I'm doing great, thank you for asking! 😊 I'm fully active and monitoring safety telemetry. Ask me anything about route lighting, safe refuges, or night travel!`;
+      }
+
+      // 1c. Identity & capability queries
+      if (q.includes('who are you') || q.includes('what are you') || q.includes('what can you do') || q.includes('your name')) {
+        return `I'm your <strong>SafeRoute Safety Assistant</strong> powered by Track A Safety Engine 🛡️.<br/><br/>I analyze live street lighting, crowd activity, historical incident logs, and nearby 24/7 safe refuges to give you real-time safety recommendations!`;
+      }
+
+      // 2. Night / late travel query
+      if (q.includes('10 pm') || q.includes('night') || q.includes('late') || q.includes('dark')) {
+        if (activeRoute) {
+          const lighting = (activeRoute.factor_breakdown && activeRoute.factor_breakdown.lighting) || 88;
+          const incident = (activeRoute.factor_breakdown && activeRoute.factor_breakdown.incident_history) || 90;
+          const islandCount = (activeRoute.safe_islands || []).length;
+          return `For your <strong>${personaLabel}</strong> profile at <strong>10:00 PM</strong>, the <strong>${activeRoute.label}</strong> is rated <strong>${activeRoute.score}/100</strong>.<br/><br/>• <strong>Lighting Score:</strong> <strong>${lighting}/100</strong> (Well-lit main avenues)<br/>• <strong>Incident History:</strong> <strong>${incident}/100</strong> (Low risk area)<br/>• <strong>Safe Refuges:</strong> Passes <strong>${islandCount} verified safe islands</strong> along the path.`;
         }
         return `At 10 PM, lighting and isolation factors receive higher weightings. We recommend routes with scores above 75 (Green band) that pass active 24hr safe islands.`;
       }
 
-      if (q.includes('why') || q.includes('safer')) {
+      // 3. Why safer / comparisons
+      if (q.includes('why') || q.includes('safer') || q.includes('reason') || q.includes('compare')) {
         if (activeRoute) {
-          return `<strong>${activeRoute.label}</strong> scores <strong>${activeRoute.score}/100</strong> because it prioritizes well-lit main arterial roads (${activeRoute.factor_breakdown.lighting || 85}/100 lighting score) and avoids unmonitored alleys. It also provides immediate access to safe refuges along the way.`;
+          const lighting = (activeRoute.factor_breakdown && activeRoute.factor_breakdown.lighting) || 85;
+          return `<strong>${activeRoute.label}</strong> scores <strong>${activeRoute.score}/100</strong> because it prioritizes well-lit main arterial roads (<strong>${lighting}/100 lighting score</strong>), maintains active pedestrian presence, and avoids unmonitored alleys. It also provides immediate access to 24/7 safe refuges along your route.`;
         }
         return `Safest routes are scored using Track A's ML model which combines street lighting density, crowd activity, historical incident logs, and proximity to 24/7 safe islands.`;
       }
 
-      if (q.includes('where') || q.includes('feel unsafe') || q.includes('island') || q.includes('pharmacy') || q.includes('police')) {
+      // 4. Safe islands & refuges
+      if (q.includes('where') || q.includes('feel unsafe') || q.includes('island') || q.includes('pharmacy') || q.includes('police') || q.includes('refuge') || q.includes('shop') || q.includes('emergency')) {
         if (activeRoute && activeRoute.safe_islands && activeRoute.safe_islands.length > 0) {
           const links = activeRoute.safe_islands.map(is => 
             `<span class="map-ref-link" onclick="focusSafeIsland(${is.lat}, ${is.lng}, '${escapeHtml(is.name)}')">📍 ${escapeHtml(is.name)} (${is.type})</span>`
           ).join(' ');
-          return `If you feel unsafe, head to one of these nearest verified safe islands along your route:<br/><br/>${links}<br/><br/>Click any location to zoom the map directly to it!`;
+          return `If you feel unsafe or need immediate assistance, head to one of these nearest verified safe islands along <strong>${activeRoute.label}</strong>:<br/><br/>${links}<br/><br/>💡 <em>Click any location chip above to instantly focus the map on that refuge! You can also press <strong>🚨 ESCAPE MODE</strong> for emergency routing.</em>`;
         }
         return `You can use <strong>🚨 ESCAPE MODE</strong> at any time to instantly route to the nearest emergency police post or 24hr safe refuge.`;
       }
 
-      if (q.includes('alone') || q.includes('solo')) {
-        return `When traveling alone, lighting (30%) and isolation avoidance (25%) are heavily weighted. Select the <strong>Solo / Night</strong> profile button to recalculate route safety specifically for solo travel!`;
+      // 5. Solo / female traveler query
+      if (q.includes('alone') || q.includes('solo') || q.includes('woman') || q.includes('female')) {
+        return `When traveling alone at night, lighting (<strong>30% weight</strong>) and isolation avoidance (<strong>25% weight</strong>) are heavily prioritized by our scoring engine.<br/><br/>💡 <em>Select the <strong>Solo / Night</strong> profile button to recalculate and optimize route safety specifically for solo travel!</em>`;
       }
 
-      if (activeRoute) {
-        return `Based on active Track A safety data for <strong>${activeRoute.label}</strong> (Score ${activeRoute.score}/100): Lighting is ${activeRoute.factor_breakdown.lighting || 85}/100, Crowd density is ${activeRoute.factor_breakdown.crowd_density || 80}/100, and there are ${activeRoute.safe_islands.length} safe islands nearby.`;
+      // 6. Explicit route score / summary query
+      if (q.includes('route') || q.includes('score') || q.includes('detail') || q.includes('summary') || q.includes('overview') || q.includes('tell me')) {
+        if (activeRoute) {
+          const lighting = (activeRoute.factor_breakdown && activeRoute.factor_breakdown.lighting) || 85;
+          const crowd = (activeRoute.factor_breakdown && activeRoute.factor_breakdown.crowd_density) || 80;
+          const islandCount = (activeRoute.safe_islands || []).length;
+          return `Based on live telemetry for <strong>${activeRoute.label}</strong>:<br/><br/>• <strong>Composite Safety Score:</strong> <strong>${activeRoute.score}/100</strong><br/>• <strong>Street Lighting:</strong> <strong>${lighting}/100</strong><br/>• <strong>Crowd Activity:</strong> <strong>${crowd}/100</strong><br/>• <strong>Safe Refuges:</strong> <strong>${islandCount} 24hr islands nearby</strong>`;
+        }
       }
 
-      return `I can help you analyze route safety scores, lighting conditions, or locate nearby 24hr safe islands. Try asking one of the prompt chips below!`;
+      // Fallback
+      return `I'm here to help you navigate safely! Ask me questions like:<br/><br/>• <strong>"Is this route safe at 10 PM?"</strong><br/>• <strong>"Why is this route safer?"</strong><br/>• <strong>"Where is the nearest safe island?"</strong><br/>• <strong>"What if I travel alone?"</strong>`;
     }
 
     function escapeHtml(str) {
