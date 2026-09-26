@@ -1,0 +1,5 @@
+requests
+numpy
+Pillow
+ultralytics
+python-dotenv
