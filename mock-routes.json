@@ -1,0 +1,165 @@
+{
+  "routes": [
+    {
+      "id": "route_1",
+      "label": "Safest Route",
+      "coordinates": [
+        [28.6315, 77.2167],
+        [28.6312, 77.2198],
+        [28.6305, 77.2235],
+        [28.6298, 77.2268],
+        [28.6290, 77.2298],
+        [28.6278, 77.2330],
+        [28.6265, 77.2355],
+        [28.6250, 77.2378],
+        [28.6233, 77.2400],
+        [28.6215, 77.2420],
+        [28.6198, 77.2442],
+        [28.6180, 77.2460],
+        [28.6162, 77.2478],
+        [28.6145, 77.2495],
+        [28.6128, 77.2510],
+        [28.6110, 77.2523],
+        [28.6095, 77.2537],
+        [28.6080, 77.2548]
+      ],
+      "score": 84,
+      "eta_minutes": 32,
+      "distance_km": 6.8,
+      "factor_breakdown": {
+        "lighting": 92,
+        "crowd_density": 80,
+        "transit_proximity": 75,
+        "isolation": 88,
+        "incident_history": 90
+      },
+      "safe_islands": [
+        {
+          "name": "Apollo Pharmacy",
+          "type": "pharmacy",
+          "lat": 28.6278,
+          "lng": 77.2330,
+          "address": "Connaught Place, New Delhi"
+        },
+        {
+          "name": "Delhi Police Post",
+          "type": "police",
+          "lat": 28.6215,
+          "lng": 77.2420,
+          "address": "Mandi House Metro, New Delhi"
+        },
+        {
+          "name": "24hr Petrol Station",
+          "type": "shop",
+          "lat": 28.6145,
+          "lng": 77.2495,
+          "address": "Khan Market Area, New Delhi"
+        }
+      ]
+    },
+    {
+      "id": "route_2",
+      "label": "Balanced Route",
+      "coordinates": [
+        [28.6315, 77.2167],
+        [28.6320, 77.2205],
+        [28.6325, 77.2245],
+        [28.6322, 77.2285],
+        [28.6315, 77.2320],
+        [28.6305, 77.2355],
+        [28.6292, 77.2388],
+        [28.6278, 77.2415],
+        [28.6262, 77.2435],
+        [28.6245, 77.2455],
+        [28.6228, 77.2470],
+        [28.6210, 77.2482],
+        [28.6192, 77.2490],
+        [28.6175, 77.2498],
+        [28.6158, 77.2505],
+        [28.6140, 77.2512],
+        [28.6122, 77.2520],
+        [28.6108, 77.2530],
+        [28.6095, 77.2542],
+        [28.6080, 77.2548]
+      ],
+      "score": 67,
+      "eta_minutes": 26,
+      "distance_km": 5.9,
+      "factor_breakdown": {
+        "lighting": 70,
+        "crowd_density": 65,
+        "transit_proximity": 80,
+        "isolation": 60,
+        "incident_history": 72
+      },
+      "safe_islands": [
+        {
+          "name": "Medplus 24hr",
+          "type": "pharmacy",
+          "lat": 28.6315,
+          "lng": 77.2320,
+          "address": "Barakhamba Road, New Delhi"
+        },
+        {
+          "name": "DMRC Security Booth",
+          "type": "police",
+          "lat": 28.6228,
+          "lng": 77.2470,
+          "address": "Pragati Maidan Metro, New Delhi"
+        }
+      ]
+    },
+    {
+      "id": "route_3",
+      "label": "Fastest Route",
+      "coordinates": [
+        [28.6315, 77.2167],
+        [28.6318, 77.2210],
+        [28.6310, 77.2255],
+        [28.6295, 77.2298],
+        [28.6275, 77.2338],
+        [28.6252, 77.2372],
+        [28.6228, 77.2402],
+        [28.6205, 77.2428],
+        [28.6183, 77.2448],
+        [28.6162, 77.2462],
+        [28.6142, 77.2472],
+        [28.6120, 77.2482],
+        [28.6100, 77.2495],
+        [28.6080, 77.2548]
+      ],
+      "score": 41,
+      "eta_minutes": 21,
+      "distance_km": 5.1,
+      "factor_breakdown": {
+        "lighting": 35,
+        "crowd_density": 45,
+        "transit_proximity": 60,
+        "isolation": 30,
+        "incident_history": 40
+      },
+      "safe_islands": [
+        {
+          "name": "All Night Kiosk",
+          "type": "shop",
+          "lat": 28.6252,
+          "lng": 77.2372,
+          "address": "ITO Crossing, New Delhi"
+        }
+      ]
+    }
+  ],
+  "meta": {
+    "origin": {
+      "name": "Connaught Place",
+      "lat": 28.6315,
+      "lng": 77.2167
+    },
+    "destination": {
+      "name": "Lajpat Nagar",
+      "lat": 28.6080,
+      "lng": 77.2548
+    },
+    "city": "Delhi NCR, India"
+  }
+}

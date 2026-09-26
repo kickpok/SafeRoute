@@ -9,13 +9,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from app.schemas import ErrorResponse, RouteObject, RoutesResponse
+from app.schemas import ErrorResponse, RouteObject, RoutesResponse, RouteRequest
 from app import services
 
 router = APIRouter(prefix="/api/v1", tags=["routes"])
 
 
-# ── GET /api/v1/routes ──────────────────────────────────────────────
+# ── GET & POST /api/v1/routes ───────────────────────────────────────
 @router.get(
     "/routes",
     response_model=RoutesResponse,
@@ -40,6 +40,16 @@ async def list_routes() -> RoutesResponse:
         destination=destination,
         routes=routes,
     )
+
+
+@router.post(
+    "/routes",
+    response_model=RoutesResponse,
+    summary="List candidate routes for origin/destination",
+    description="Accepts candidate route request with origin/destination.",
+)
+async def list_routes_post(payload: RouteRequest | None = None) -> RoutesResponse:
+    return await list_routes()
 
 
 # ── GET /api/v1/routes/{route_id} ──────────────────────────────────

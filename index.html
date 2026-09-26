@@ -1,0 +1,160 @@
+<!--
+  =============================================================================
+  SafeRoute — Safety-First Route Planner
+  =============================================================================
+  IMPORTANT: Local Development & Server Requirement
+  - This app must be served over HTTP/HTTPS, NOT opened directly via file://
+  - Opening via file:// causes referrer and CORS policy restrictions that block
+    tile loading (CartoDB/OSM) and external routing/POI APIs (OSRM, Overpass, Nominatim).
+  
+  HOW TO RUN:
+    1. Start the backend (in SafeRoute/backend):
+       uvicorn main:app --port 8000
+    2. In your terminal (in this directory), start the frontend:
+       python3 -m http.server 3000
+    3. Open your browser at:
+       http://localhost:3000/index.html
+  =============================================================================
+-->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>SafeRoute — Safety-First Route Planner</title>
+  <meta name="description"
+    content="SafeRoute helps you find the safest route to your destination in Delhi NCR, scoring paths by lighting, crowd density, incident history and more." />
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+    rel="stylesheet" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+  <div id="app">
+    <!-- SIDEBAR (doubles as top section on mobile) -->
+    <div id="sidebar">
+
+      <!-- HEADER -->
+      <div id="header">
+        <div class="header-inner">
+          <div class="logo">🛡️</div>
+          <div class="brand">
+            <h1>SafeRoute</h1>
+            <p>Safety-first navigation</p>
+          </div>
+        </div>
+
+        <!-- PERSONA SELECTOR -->
+        <div id="persona-strip" role="group" aria-label="Travel persona">
+          <button class="persona-btn active" id="persona-solo" data-persona="solo" onclick="selectPersona(this)">
+            <span class="icon">🚶</span> Solo / Night
+          </button>
+          <button class="persona-btn" id="persona-kids" data-persona="kids" onclick="selectPersona(this)">
+            <span class="icon">👨‍👧</span> With Kids
+          </button>
+          <button class="persona-btn" id="persona-shift" data-persona="shift" onclick="selectPersona(this)">
+            <span class="icon">🌙</span> Late Shift
+          </button>
+          <button class="persona-btn" id="persona-elderly" data-persona="elderly" onclick="selectPersona(this)">
+            <span class="icon">🧓</span> Elderly
+          </button>
+        </div>
+      </div>
+
+      <!-- ROUTE FORM -->
+      <div id="route-form">
+        <div class="input-row">
+          <div class="input-wrapper">
+            <span class="input-icon">📍</span>
+            <input class="route-input" id="input-origin" type="text" placeholder="From: e.g. Connaught Place"
+              value="Connaught Place, Delhi" aria-label="Starting location" />
+          </div>
+        </div>
+        <div class="input-row">
+          <div class="input-wrapper">
+            <span class="input-icon">🏁</span>
+            <input class="route-input" id="input-dest" type="text" placeholder="To: e.g. Lajpat Nagar"
+              value="Lajpat Nagar, Delhi" aria-label="Destination" />
+          </div>
+          <button id="find-btn" onclick="handleFindRoutes()" aria-label="Find safe routes">
+            🔍 Find Safe Routes
+          </button>
+        </div>
+      </div>
+
+      <!-- ROUTE CARDS BOTTOM SHEET -->
+      <div id="bottom-sheet" class="hidden" aria-live="polite">
+        <div class="sheet-handle"></div>
+        <div id="route-cards"></div>
+      </div>
+
+    </div><!-- /sidebar -->
+
+    <!-- MAP -->
+    <div id="map-container">
+      <div id="map"></div>
+
+      <!-- Legend -->
+      <div id="map-legend">
+        <div class="legend-title">Safe Islands</div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background:#34d399"></div> 24hr Pharmacy
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background:#60a5fa"></div> Police Post
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background:#fbbf24"></div> 24hr Shop
+        </div>
+      </div>
+
+      <!-- Loading Overlay -->
+      <div id="loading-overlay">
+        <div class="spinner"></div>
+        <div class="loading-text">Scoring routes...</div>
+        <div class="loading-sub">Analyzing lighting, crowd density & safety data</div>
+      </div>
+
+      <!-- Empty State -->
+      <div id="empty-state">
+        <div class="empty-icon">🗺️</div>
+        <div class="empty-title">Ready to navigate safely</div>
+        <div class="empty-sub">Enter your start and destination above, then tap <strong>Find Safe Routes</strong> to see
+          color-coded safety scores.</div>
+      </div>
+
+      <!-- Selected route banner -->
+      <div id="selected-banner">
+        <div>
+          <div class="banner-text" id="banner-route-name">Route Selected</div>
+          <div class="banner-sub" id="banner-route-sub">Score: — · — min</div>
+        </div>
+        <button class="banner-btn" onclick="handleProceed()" id="proceed-btn">
+          Proceed →
+        </button>
+      </div>
+    </div>
+
+  </div><!-- /app -->
+
+  <!-- Toast -->
+  <div id="toast"></div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script src="app.js"></script>
+</body>
+
+</html>
