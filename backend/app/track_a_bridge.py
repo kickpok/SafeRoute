@@ -3,6 +3,7 @@ SafeRoute Backend – Track A ML Scoring Engine Bridge.
 
 Connects Track B API to Track A's real scoring pipeline:
     track_a_data_ml/track_a_data_ml/main.py -> score_all_routes()
+    track_a_data_ml/track_a_data_ml/scoring.py -> score_route()
 
 This bridge cleanly configures the import path and handles external API
 resilience (e.g. Overpass User-Agent headers, timeouts, and graceful error propagation).
@@ -88,6 +89,7 @@ import importlib.util
 
 _track_a_loaded = False
 _score_all_routes_fn = None
+_score_route_fn = None
 
 for p in _candidate_paths:
     if p.exists() and (p / "scoring.py").exists() and (p / "main.py").exists():
@@ -96,23 +98,33 @@ for p in _candidate_paths:
             # Append so backend root has higher precedence in sys.path
             sys.path.append(p_str)
         try:
-            spec = importlib.util.spec_from_file_location("track_a_main_module", str(p / "main.py"))
-            if spec and spec.loader:
-                mod = importlib.util.module_from_spec(spec)
-                sys.modules["track_a_main_module"] = mod
-                spec.loader.exec_module(mod)
-                _score_all_routes_fn = getattr(mod, "score_all_routes", None)
-                if _score_all_routes_fn:
-                    _track_a_loaded = True
-                    logger.info("Successfully loaded Track A scoring engine from: %s", p)
-                    break
+            # Import main.py
+            spec_m = importlib.util.spec_from_file_location("track_a_main_module", str(p / "main.py"))
+            if spec_m and spec_m.loader:
+                mod_m = importlib.util.module_from_spec(spec_m)
+                sys.modules["track_a_main_module"] = mod_m
+                spec_m.loader.exec_module(mod_m)
+                _score_all_routes_fn = getattr(mod_m, "score_all_routes", None)
+
+            # Import scoring.py
+            spec_s = importlib.util.spec_from_file_location("track_a_scoring_module", str(p / "scoring.py"))
+            if spec_s and spec_s.loader:
+                mod_s = importlib.util.module_from_spec(spec_s)
+                sys.modules["track_a_scoring_module"] = mod_s
+                spec_s.loader.exec_module(mod_s)
+                _score_route_fn = getattr(mod_s, "score_route", None)
+
+            if _score_all_routes_fn and _score_route_fn:
+                _track_a_loaded = True
+                logger.info("Successfully loaded Track A scoring engine from: %s", p)
+                break
         except Exception as e:
             logger.warning("Failed importing from %s: %s", p, e)
 
 
 def is_track_a_available() -> bool:
     """Return True if Track A scoring engine is imported and available."""
-    return _track_a_loaded and _score_all_routes_fn is not None
+    return _track_a_loaded and _score_all_routes_fn is not None and _score_route_fn is not None
 
 
 def score_routes(
@@ -141,3 +153,24 @@ def score_routes(
         persona=persona,
         hour=hour,
     )
+
+
+def score_single_route(
+    features: Dict[str, float],
+    persona: str = "default",
+    hour: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Wrap Track A's score_route() function from scoring.py.
+
+    features: Dict containing normalized 0-1 values for lighting, crowd, business, transit, incident, isolation
+    persona: "default", "solo_night", "with_kids", or "late_shift"
+    hour: Integer hour (0-23, defaults to 12)
+
+    Returns: Track A score dict with "score", "persona", "hour", "breakdown"
+    """
+    if not is_track_a_available() or _score_route_fn is None:
+        raise RuntimeError("Track A scoring engine is not available.")
+
+    applied_hour = hour if hour is not None else 12
+    return _score_route_fn(features=features, persona=persona, hour=applied_hour)

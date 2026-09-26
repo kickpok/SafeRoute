@@ -7,12 +7,16 @@ app/services.py so routes stay thin and testable.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from typing import Literal, Optional
 
-from app.schemas import ErrorResponse, RouteObject, RoutesResponse, RouteRequest
+from fastapi import APIRouter, HTTPException, Query
+
 from app import services
+from app.schemas import ErrorResponse, RouteObject, RouteRequest, RoutesResponse
 
 router = APIRouter(prefix="/api/v1", tags=["routes"])
+
+PersonaType = Literal["default", "solo_night", "with_kids", "late_shift"]
 
 
 # ── GET & POST /api/v1/routes ───────────────────────────────────────
@@ -22,15 +26,22 @@ router = APIRouter(prefix="/api/v1", tags=["routes"])
     summary="List candidate routes",
     description=(
         "Returns all candidate routes with safety scores and factor "
-        "breakdowns.  Track C should use this endpoint to populate the "
-        "map UI."
+        "breakdowns scored by Track A for the requested persona profile. "
+        "Track C should use this endpoint to populate the map UI."
     ),
     responses={
         200: {"description": "Candidate routes returned successfully"},
+        422: {"description": "Validation error (unsupported persona profile)"},
     },
 )
-async def list_routes() -> RoutesResponse:
-    routes = services.get_all_routes()
+async def list_routes(
+    persona: Optional[PersonaType] = Query(
+        "default",
+        description="Persona profile for safety scoring (default, solo_night, with_kids, late_shift)",
+    ),
+) -> RoutesResponse:
+    applied_persona = persona or "default"
+    routes = services.get_all_routes(persona=applied_persona)
     # Use the first/last coordinate of the first route as origin/dest
     # for the response wrapper (mock data all share the same endpoints).
     origin = routes[0].coordinates[0]
@@ -46,10 +57,16 @@ async def list_routes() -> RoutesResponse:
     "/routes",
     response_model=RoutesResponse,
     summary="List candidate routes for origin/destination",
-    description="Accepts candidate route request with origin/destination.",
+    description="Accepts candidate route request with origin/destination and optional persona query parameter.",
 )
-async def list_routes_post(payload: RouteRequest | None = None) -> RoutesResponse:
-    return await list_routes()
+async def list_routes_post(
+    payload: RouteRequest | None = None,
+    persona: Optional[PersonaType] = Query(
+        "default",
+        description="Persona profile for safety scoring",
+    ),
+) -> RoutesResponse:
+    return await list_routes(persona=persona)
 
 
 # ── GET /api/v1/routes/{route_id} ──────────────────────────────────
@@ -57,17 +74,24 @@ async def list_routes_post(payload: RouteRequest | None = None) -> RoutesRespons
     "/routes/{route_id}",
     response_model=RouteObject,
     summary="Get a single route by ID",
-    description="Look up one candidate route by its unique route_id.",
+    description="Look up one candidate route by its unique route_id and optional persona.",
     responses={
         200: {"description": "Route found"},
         404: {
             "description": "Route not found",
             "model": ErrorResponse,
         },
+        422: {"description": "Validation error (unsupported persona profile)"},
     },
 )
-async def get_route(route_id: str) -> RouteObject:
-    route = services.get_route_by_id(route_id)
+async def get_route(
+    route_id: str,
+    persona: Optional[PersonaType] = Query(
+        "default",
+        description="Persona profile for safety scoring",
+    ),
+) -> RouteObject:
+    route = services.get_route_by_id(route_id, persona=persona or "default")
     if route is None:
         raise HTTPException(
             status_code=404,

@@ -13,6 +13,7 @@ Verifies:
 9. POST /api/safe-islands refuge lookup.
 10. POST /api/escape escape mode route generation and distress alert integration.
 11. POST /api/escape/location live GPS tracking & rerouting.
+12. GET /api/v1/routes?persona=<persona> query parameter support and Track A scoring integration.
 """
 
 from __future__ import annotations
@@ -322,7 +323,6 @@ def test_9_safe_islands_lookup():
     assert "lat" in first_island
     assert "lon" in first_island
     assert "distance_meters" in first_island
-    # Verify sorted ascending
     for i in range(len(data["safe_islands"]) - 1):
         assert data["safe_islands"][i]["distance_meters"] <= data["safe_islands"][i + 1]["distance_meters"]
 
@@ -374,6 +374,40 @@ def test_11_escape_location_update():
     assert data["reached_refuge"] is True
 
 
+def test_12_get_routes_persona_query_param():
+    """Test 12 — GET /api/v1/routes?persona=<persona> passes persona to Track A and validates invalid persona."""
+    # 1. Default (omitted)
+    resp_default = client.get("/api/v1/routes")
+    assert resp_default.status_code == 200
+    routes_default = resp_default.json()["routes"]
+    assert len(routes_default) >= 3
+
+    # 2. Solo night persona
+    resp_solo = client.get("/api/v1/routes?persona=solo_night")
+    assert resp_solo.status_code == 200
+    routes_solo = resp_solo.json()["routes"]
+    assert len(routes_solo) == len(routes_default)
+    # Verify Track A weighting produced a calculated safety score
+    assert isinstance(routes_solo[0]["safety_score"], float)
+    assert 0.0 <= routes_solo[0]["safety_score"] <= 1.0
+
+    # 3. With kids persona
+    resp_kids = client.get("/api/v1/routes?persona=with_kids")
+    assert resp_kids.status_code == 200
+    routes_kids = resp_kids.json()["routes"]
+    assert len(routes_kids) == len(routes_default)
+
+    # 4. Late shift persona
+    resp_shift = client.get("/api/v1/routes?persona=late_shift")
+    assert resp_shift.status_code == 200
+    routes_shift = resp_shift.json()["routes"]
+    assert len(routes_shift) == len(routes_default)
+
+    # 5. Invalid persona rejected with 422
+    resp_invalid = client.get("/api/v1/routes?persona=invalid_persona_xyz")
+    assert resp_invalid.status_code == 422
+
+
 if __name__ == "__main__":
     print("Running integration tests...")
     test_1_track_a_import()
@@ -396,6 +430,8 @@ if __name__ == "__main__":
     print("[PASS] Test 10: Escape Mode activation & distress dispatch")
     test_11_escape_location_update()
     print("[PASS] Test 11: Escape Mode live GPS tracking")
+    test_12_get_routes_persona_query_param()
+    print("[PASS] Test 12: GET /api/v1/routes?persona=<persona> Track A integration")
     print("\n==========================================")
-    print("ALL 11/11 INTEGRATION TESTS PASSED (0 FAILED)")
+    print("ALL 12/12 INTEGRATION TESTS PASSED (0 FAILED)")
     print("==========================================")

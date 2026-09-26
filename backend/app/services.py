@@ -6,11 +6,12 @@ and graceful fallback, ensuring live pitch demos never fail if an external
 scoring dependency is unavailable.
 
 ┌──────────────────────────────────────────────────────────────────┐
-│  DEMO CACHE & FALLBACK MECHANISM (Phase 4)                       │
+│  DEMO CACHE & FALLBACK MECHANISM (Phase 4 & Track A Persona)     │
 │                                                                  │
 │  - Precomputed routes are cached in-memory at startup.          │
-│  - If live ingestion/ML service fails, get_all_routes()         │
-│    automatically and safely falls back to precomputed demo data. │
+│  - When a persona is provided, routes are dynamically scored    │
+│    via Track A's real score_route() function.                   │
+│  - If live ML service fails, returns precomputed demo data.     │
 │  - Readiness can be inspected via get_demo_readiness().          │
 └──────────────────────────────────────────────────────────────────┘
 """
@@ -41,24 +42,40 @@ def set_demo_fallback_mode(enabled: bool) -> None:
     _force_demo_fallback = enabled
 
 
-def get_all_routes() -> List[RouteObject]:
+def get_all_routes(persona: str = "default") -> List[RouteObject]:
     """
-    Return every candidate route currently available.
+    Return candidate routes scored for the requested persona.
 
-    Attempts to fetch latest routes or returns deterministic precomputed demo cache.
+    Scores routes using Track A's score_route() for the specified persona.
     """
-    try:
-        # If a live source exists in future, it is called here.
-        # If unavailable or forced, returns precomputed cache.
-        return list(_DEMO_CACHE)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Live route source unavailable; falling back to demo cache: %s", exc)
-        return list(_DEMO_CACHE)
+    persona = persona or "default"
+    routes = []
+    for r in _DEMO_CACHE:
+        features = {
+            "lighting": r.factors.lighting if r.factors.lighting is not None else 0.5,
+            "crowd": r.factors.crowd if r.factors.crowd is not None else 0.5,
+            "business": 0.5,
+            "transit": r.factors.transit if r.factors.transit is not None else 0.5,
+            "incident": r.factors.incidents if r.factors.incidents is not None else 0.5,
+            "isolation": r.factors.isolation if r.factors.isolation is not None else 0.5,
+        }
+        try:
+            from app import track_a_bridge
+            if track_a_bridge.is_track_a_available():
+                scored = track_a_bridge.score_single_route(features, persona=persona)
+                new_score = round(scored["score"] / 100.0, 2)
+                r_scored = r.model_copy(update={"safety_score": new_score})
+                routes.append(r_scored)
+                continue
+        except Exception as exc:
+            logger.warning("Failed scoring route with Track A: %s", exc)
+        routes.append(r)
+    return routes
 
 
-def get_route_by_id(route_id: str) -> Optional[RouteObject]:
+def get_route_by_id(route_id: str, persona: str = "default") -> Optional[RouteObject]:
     """Look up a single route by its ID from active routes / demo cache."""
-    for route in get_all_routes():
+    for route in get_all_routes(persona=persona):
         if route.route_id == route_id:
             return route
     return None
@@ -76,4 +93,3 @@ def get_demo_readiness() -> Dict[str, Any]:
         "demo_fallback_active": is_demo_fallback_active(),
         "safety_engine_operational": True,
     }
-
