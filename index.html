@@ -179,13 +179,19 @@
             </div>
           </div>
 
-          <!-- Feature Action Strip: Safety Assistant & Escape Mode -->
+          <!-- Feature Action Strip: Safety Assistant, Escape Mode, What-If Simulator & Reset -->
           <div class="action-header-bar">
             <button class="header-action-btn assistant-trigger-btn" onclick="toggleAssistant(true)" title="Ask Safety Assistant">
               💬 Assistant
             </button>
+            <button class="header-action-btn whatif-trigger-btn" onclick="openWhatIfModal()" title="Dynamic Persona & What-If Simulator">
+              🔮 What-If
+            </button>
             <button class="header-action-btn escape-trigger-btn" onclick="triggerEscapeMode()" title="Trigger Emergency Escape Mode">
-              🚨 ESCAPE MODE
+              🚨 ESCAPE
+            </button>
+            <button class="header-action-btn reset-trigger-btn" onclick="resetDemoState()" title="Reset Demo Data">
+              🔄
             </button>
           </div>
 
@@ -304,15 +310,85 @@
           <div class="empty-sub">Your routes will appear here.</div>
         </div>
 
-        <!-- Selected-route banner (mobile) -->
+        <!-- Selected-route banner -->
         <div id="selected-banner">
           <div>
             <div class="banner-text" id="banner-route-name">Route Selected</div>
             <div class="banner-sub"  id="banner-route-sub">Score: — · — min</div>
           </div>
-          <button class="banner-btn" onclick="handleProceed()" id="proceed-btn">
-            Proceed →
+          <button class="banner-btn" onclick="startWalkSession()" id="proceed-btn">
+            🚶 Start Safe Walk →
           </button>
+        </div>
+
+        <!-- ── ACTIVE WALK SESSION COMPANION BAR (Track D) ── -->
+        <div id="walk-session-bar" class="walk-session-bar hidden">
+          <div class="walk-bar-header">
+            <div class="walk-status-pill">
+              <span class="walk-pulse-dot"></span>
+              <span id="walk-status-text">WALK IN PROGRESS</span>
+            </div>
+            <div class="walk-privacy-badge" onclick="openPrivacyModal()" title="View Location Sharing Privacy">
+              🔒 <span id="walk-privacy-text">Sharing with Trusted Contact</span>
+            </div>
+          </div>
+
+          <!-- Deviation Warning Banner -->
+          <div id="deviation-banner" class="deviation-banner hidden">
+            <div class="alert-icon-wrap">⚠️</div>
+            <div class="alert-content">
+              <div class="alert-title">Route Deviation Detected!</div>
+              <div class="alert-desc" id="deviation-desc">You are 165m away from your scored safe corridor.</div>
+            </div>
+            <div class="alert-actions">
+              <button class="alert-action-btn btn-reroute" onclick="rerouteToSafePath()">Recalibrate</button>
+              <button class="alert-action-btn btn-dismiss" onclick="dismissDeviationAlert()">✕</button>
+            </div>
+          </div>
+
+          <!-- ETA Delay Alert Banner -->
+          <div id="eta-delay-banner" class="eta-delay-banner hidden">
+            <div class="alert-icon-wrap">⏱️</div>
+            <div class="alert-content">
+              <div class="alert-title">Walking Delay Alert</div>
+              <div class="alert-desc" id="delay-desc">Progress is slower than expected (+6 min delay). Overdue alert monitored.</div>
+            </div>
+            <button class="alert-action-btn btn-dismiss" onclick="dismissDelayAlert()">Got it</button>
+          </div>
+
+          <div class="walk-metrics-row">
+            <div class="walk-metric">
+              <div class="metric-label">Remaining Time</div>
+              <div class="metric-val" id="walk-timer">--:--</div>
+            </div>
+            <div class="walk-metric">
+              <div class="metric-label">Distance Left</div>
+              <div class="metric-val" id="walk-distance">-- km</div>
+            </div>
+            <div class="walk-metric">
+              <div class="metric-label">Safe Refuges</div>
+              <div class="metric-val" id="walk-refuges">--</div>
+            </div>
+          </div>
+
+          <div class="walk-progress-track">
+            <div class="walk-progress-fill" id="walk-progress-bar" style="width: 15%"></div>
+          </div>
+
+          <!-- Walk Controls & Demo Simulation Toolbar -->
+          <div class="walk-controls-row">
+            <button class="walk-sos-btn" onclick="triggerDistressAlert()" title="Discreet SOS Distress Signal">
+              🆘 SOS ALERT
+            </button>
+            <div class="walk-sim-group">
+              <button class="sim-btn" onclick="simulateStep()" title="Simulate walking step">▶ Step</button>
+              <button class="sim-btn" onclick="simulateDeviation()" title="Simulate 180m deviation off corridor">⚠️ Deviate</button>
+              <button class="sim-btn" onclick="simulateDelay()" title="Simulate ETA delay">⏱️ Delay</button>
+            </div>
+            <button class="walk-end-btn" onclick="completeWalkSession()">
+              🏁 Finish Walk
+            </button>
+          </div>
         </div>
 
       </div><!-- /map-container -->
@@ -349,6 +425,164 @@
     <div class="assistant-input-bar">
       <input type="text" id="assistant-input" placeholder="Ask about route safety, lighting, safe islands..." onkeydown="if(event.key==='Enter') sendAssistantQuery()" />
       <button id="assistant-send-btn" onclick="sendAssistantQuery()">Send</button>
+    </div>
+  <!-- ── POST-WALK FEEDBACK MODAL (Track D) ── -->
+  <div id="feedback-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-icon">🌟</div>
+        <div>
+          <h2 class="modal-title" id="feedback-title">How was your safe walk?</h2>
+          <p class="modal-sub">Your rating fine-tunes Track A safety weights for the community.</p>
+        </div>
+        <button class="modal-close-btn" onclick="closeFeedbackModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="rating-stars" id="star-rating">
+          <span class="star" data-rating="1" onclick="setRating(1)">★</span>
+          <span class="star" data-rating="2" onclick="setRating(2)">★</span>
+          <span class="star" data-rating="3" onclick="setRating(3)">★</span>
+          <span class="star" data-rating="4" onclick="setRating(4)">★</span>
+          <span class="star active" data-rating="5" onclick="setRating(5)">★</span>
+        </div>
+        <div class="rating-label" id="rating-label">5 Stars — Felt Very Safe</div>
+
+        <div class="tags-group">
+          <label class="tags-label">Safety observations along your corridor:</label>
+          <div class="feedback-tag-grid" id="feedback-tag-grid">
+            <button type="button" class="tag-chip active" onclick="toggleTag(this)" data-tag="well_lit">💡 Well-Lit</button>
+            <button type="button" class="tag-chip active" onclick="toggleTag(this)" data-tag="active_crowd">👥 Active Crowd</button>
+            <button type="button" class="tag-chip" onclick="toggleTag(this)" data-tag="dim_lighting">🌑 Dim Stretches</button>
+            <button type="button" class="tag-chip" onclick="toggleTag(this)" data-tag="isolated_stretch">🏚️ Isolated Path</button>
+            <button type="button" class="tag-chip" onclick="toggleTag(this)" data-tag="felt_uneasy">⚠️ Felt Uneasy</button>
+            <button type="button" class="tag-chip" onclick="toggleTag(this)" data-tag="open_shops">🏪 Open Stores</button>
+          </div>
+        </div>
+
+        <div class="feedback-comment-wrap">
+          <textarea id="feedback-comment" placeholder="Optional comments on route safety, lighting, or refuge access..." rows="2"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeFeedbackModal()">Skip</button>
+        <button class="btn-primary" onclick="submitWalkFeedback()">Submit Feedback</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PRIVACY & LOCATION SHARING MODAL (Track D) ── -->
+  <div id="privacy-modal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-icon">🔒</div>
+        <div>
+          <h2 class="modal-title">Live Privacy Lifecycle</h2>
+          <p class="modal-sub">Protected under Zero-Knowledge In-Transit Architecture</p>
+        </div>
+        <button class="modal-close-btn" onclick="closePrivacyModal()">✕</button>
+      </div>
+      <div class="modal-body privacy-body">
+        <div class="privacy-status-box">
+          <div class="privacy-row">
+            <span class="privacy-key">Active Check-In Session:</span>
+            <span class="privacy-val" id="privacy-session-id">None</span>
+          </div>
+          <div class="privacy-row">
+            <span class="privacy-key">Location Sharing:</span>
+            <span class="privacy-val status-green" id="privacy-sharing-state">Strictly In-Transit</span>
+          </div>
+          <div class="privacy-row">
+            <span class="privacy-key">Recipient:</span>
+            <span class="privacy-val" id="privacy-contact">Trusted Contact (Emergency Alert Protocol)</span>
+          </div>
+        </div>
+        <div class="privacy-explanation">
+          <p>🛡️ <strong>Temporary Session Lifespan</strong>: Your GPS coordinates are broadcast exclusively while your route check-in is active.</p>
+          <p>🛑 <strong>Automatic Termination</strong>: The exact moment you complete your walk, trigger finish, or reach your destination, all live location sharing immediately terminates.</p>
+          <p>🔐 <strong>No Third-Party Ad Tracking</strong>: Coordinates are never retained for ad profiling or commercial resale.</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-primary" onclick="closePrivacyModal()">Understood</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── DYNAMIC PERSONA & WHAT-IF SIMULATOR MODAL (Track D) ── -->
+  <div id="whatif-modal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card modal-wide">
+      <div class="modal-header">
+        <div class="modal-icon">🔮</div>
+        <div>
+          <h2 class="modal-title">What-If Safety Comparison</h2>
+          <p class="modal-sub">Compare safety scores across personas and hours using live Track A ML engine</p>
+        </div>
+        <button class="modal-close-btn" onclick="closeWhatIfModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="whatif-controls">
+          <div class="whatif-control-col">
+            <label>Compare Time of Day:</label>
+            <select id="whatif-hour-select" class="dash-time-select" onchange="runWhatIfComparison()">
+              <option value="14">Daytime (2 PM)</option>
+              <option value="19">Evening (7 PM)</option>
+              <option value="22" selected>Late Night (10 PM)</option>
+              <option value="2">Midnight (2 AM)</option>
+            </select>
+          </div>
+          <div class="whatif-control-col">
+            <label>Route to Compare:</label>
+            <span id="whatif-route-name" class="whatif-badge-route">Safest Route</span>
+          </div>
+        </div>
+
+        <div id="whatif-comparison-grid" class="whatif-comparison-grid">
+          <!-- Filled dynamically via runWhatIfComparison() -->
+          <div class="whatif-card" id="whatif-solo">
+            <div class="wc-header">
+              <span class="wc-icon">🚶</span>
+              <div class="wc-title">Solo / Night</div>
+              <div class="wc-score score-high" id="wc-score-solo">--</div>
+            </div>
+            <div class="wc-factors" id="wc-factors-solo"></div>
+          </div>
+          <div class="whatif-card" id="whatif-kids">
+            <div class="wc-header">
+              <span class="wc-icon">👨‍👧</span>
+              <div class="wc-title">With Kids</div>
+              <div class="wc-score score-mid" id="wc-score-kids">--</div>
+            </div>
+            <div class="wc-factors" id="wc-factors-kids"></div>
+          </div>
+          <div class="whatif-card" id="whatif-shift">
+            <div class="wc-header">
+              <span class="wc-icon">🌙</span>
+              <div class="wc-title">Late Shift</div>
+              <div class="wc-score score-high" id="wc-score-shift">--</div>
+            </div>
+            <div class="wc-factors" id="wc-factors-shift"></div>
+          </div>
+          <div class="whatif-card" id="whatif-elderly">
+            <div class="wc-header">
+              <span class="wc-icon">🧓</span>
+              <div class="wc-title">Elderly</div>
+              <div class="wc-score score-mid" id="wc-score-elderly">--</div>
+            </div>
+            <div class="wc-factors" id="wc-factors-elderly"></div>
+          </div>
+        </div>
+
+        <div class="whatif-explanation-box">
+          <div class="we-title">🤖 Track A AI Safety Insights</div>
+          <div class="we-content" id="whatif-explanation-text">
+            Loading natural language factor analysis from backend safety model...
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeWhatIfModal()">Close</button>
+        <button class="btn-primary" onclick="applySelectedWhatIf()">Apply to Navigation</button>
+      </div>
     </div>
   </div>
 
