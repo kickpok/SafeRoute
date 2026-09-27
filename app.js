@@ -462,7 +462,7 @@
       }
 
       const pName = currentPersona.toUpperCase();
-      showToast(backendSuccess ? `⚡ Scored via Track A Backend (${pName}, ${currentHour}:00)` : `✓ Rescored for "${currentPersona}" profile (${currentHour}:00)`);
+      showToast(backendSuccess ? `⚡ Scored via Bella Go Backend (${pName}, ${currentHour}:00)` : `✓ Rescored for "${currentPersona}" profile (${currentHour}:00)`);
     }
 
     function handleTimeChange(val) {
@@ -1277,7 +1277,7 @@
       // Typing indicator
       const botDiv = document.createElement('div');
       botDiv.className = 'chat-msg bot-msg';
-      botDiv.innerHTML = `<div class="msg-bubble" style="opacity:0.7">🛡️ <em>Consulting Track A Safety Engine...</em></div>`;
+      botDiv.innerHTML = `<div class="msg-bubble" style="opacity:0.7">🛡️ <em>Consulting Bella Go Safety Engine...</em></div>`;
       messages.appendChild(botDiv);
       messages.scrollTop = messages.scrollHeight;
 
@@ -1351,7 +1351,7 @@
       if (q.includes('10 pm') || q.includes('night') || q.includes('hour') || q.includes('late') || q.includes('dark')) {
         if (activeRoute) {
           const hourApplied = currentHour || 22;
-          return `At <strong>${hourApplied}:00</strong>, Track A applies night-time dampening to commercial activity while increasing lighting importance to 28% and isolation penalties. <strong>${activeRoute.label}</strong> remains our top recommendation with a composite score of <strong>${activeRoute.score}/100</strong>.`;
+          return `At <strong>${hourApplied}:00</strong>, Bella Go applies night-time dampening to commercial activity while increasing lighting importance to 28% and isolation penalties. <strong>${activeRoute.label}</strong> remains our top recommendation with a composite score of <strong>${activeRoute.score}/100</strong>.`;
         }
       }
 
@@ -1378,7 +1378,7 @@
             }
           } catch (e) {}
         }
-        return `Community incident logs and user post-walk feedback continuously feed into Track A's geospatial scoring pipeline with a 90-day exponential half-life decay.`;
+        return `Community incident logs and user post-walk feedback continuously feed into Bella Go's geospatial scoring pipeline with a 90-day exponential half-life decay.`;
       }
 
       // Default contextual response
@@ -1386,7 +1386,7 @@
         return `Based on live safety telemetry for <strong>${activeRoute.label}</strong>: Composite Safety Score is <strong>${activeRoute.score}/100</strong> (${scoreClass(activeRoute.score).replace('score-', '').toUpperCase()}), with <strong>${activeRoute.safe_islands.length}</strong> safe islands along the path. Ask me about lighting, night travel, or emergency refuges!`;
       }
 
-      return `I'm your Bella Go AI Assistant, wired into Track A's ML scoring and Track B's refuge network. How can I help you navigate safely?`;
+      return `I'm your Bella Go AI Assistant, wired into Bella Go's ML scoring and refuge network. How can I help you navigate safely?`;
     }
 
     function escapeHtml(str) {
@@ -2151,7 +2151,7 @@
       }
 
       closeFeedbackModal();
-      showToast('🌟 Thank you! Feedback recorded to refine Track A safety weights.');
+      showToast('🌟 Thank you! Feedback recorded to refine Bella Go safety weights.');
     }
 
     // =====================================================
