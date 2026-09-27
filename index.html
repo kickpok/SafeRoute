@@ -3,8 +3,8 @@
   bella go — Go freely. Go confidently.
   =============================================================================
   HOW TO RUN:
-    1. Start the backend:  uvicorn main:app --port 8000  (SafeRoute/backend/)
-    2. Start frontend:     python3 -m http.server 3000   (SafeRoute/)
+    1. Start the backend:  uvicorn main:app --port 8000  (Bella Go/backend/)
+    2. Start frontend:     python3 -m http.server 3000   (Bella Go/)
     3. Open:              http://localhost:3000/index.html
   =============================================================================
 -->
@@ -28,7 +28,7 @@
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700;800&display=swap"
     rel="stylesheet" />
 
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=7" />
 </head>
 
 <body>
@@ -53,6 +53,9 @@
         <div class="brand-logo-img" aria-hidden="true">
           <img src="bellago-logo.png" alt="bella go logo" style="height:90px;width:auto;object-fit:contain;" />
         </div>
+        <button type="button" class="intake-contacts-btn" onclick="openContactsModal()" title="Manage Trusted Contacts">
+          👥 Trusted Contacts
+        </button>
       </header>
 
       <!-- Hero text -->
@@ -68,11 +71,11 @@
         <!-- Origin -->
         <div class="field-group">
           <label class="field-label" for="intake-origin">📍 Starting Point</label>
-          <div class="field-input-wrap">
-            <input class="field-input" id="intake-origin" type="text"
-              placeholder="e.g. Connaught Place, Delhi"
-              value="Connaught Place, Delhi"
-              aria-label="Starting location" />
+          <div class="field-input-wrap" style="display:flex; gap:8px; align-items:center;">
+            <input class="field-input" id="intake-origin" type="text" placeholder="e.g. Connaught Place, Delhi"
+              value="Connaught Place, Delhi" aria-label="Starting location" style="flex:1;" />
+            <button type="button" class="use-location-btn" onclick="useMyLocation()" title="Use my current location">📌
+              My Location</button>
           </div>
         </div>
 
@@ -80,10 +83,8 @@
         <div class="field-group">
           <label class="field-label" for="intake-dest">🏁 Destination</label>
           <div class="field-input-wrap">
-            <input class="field-input" id="intake-dest" type="text"
-              placeholder="e.g. Lajpat Nagar, Delhi"
-              value="Lajpat Nagar, Delhi"
-              aria-label="Destination" />
+            <input class="field-input" id="intake-dest" type="text" placeholder="e.g. Lajpat Nagar, Delhi"
+              value="Lajpat Nagar, Delhi" aria-label="Destination" />
           </div>
         </div>
 
@@ -102,30 +103,97 @@
             </div>
           </div>
           <div class="intake-persona-grid" id="intake-persona-grid" role="group" aria-label="Select travel persona">
-            <button class="intake-persona-btn active" id="intake-persona-solo"
-              data-persona="solo" onclick="intakeSelectPersona(this)">
+            <button class="intake-persona-btn active" id="intake-persona-solo" data-persona="solo"
+              onclick="intakeSelectPersona(this)">
               <span class="ipb-icon">🚶</span>
               <span class="ipb-name">Solo / Night</span>
               <span class="ipb-desc">Late night walks</span>
             </button>
-            <button class="intake-persona-btn" id="intake-persona-kids"
-              data-persona="kids" onclick="intakeSelectPersona(this)">
+            <button class="intake-persona-btn" id="intake-persona-kids" data-persona="kids"
+              onclick="intakeSelectPersona(this)">
               <span class="ipb-icon">👨‍👧</span>
               <span class="ipb-name">With Kids</span>
               <span class="ipb-desc">Family-safe routes</span>
             </button>
-            <button class="intake-persona-btn" id="intake-persona-shift"
-              data-persona="shift" onclick="intakeSelectPersona(this)">
+            <button class="intake-persona-btn" id="intake-persona-shift" data-persona="shift"
+              onclick="intakeSelectPersona(this)">
               <span class="ipb-icon">🌙</span>
               <span class="ipb-name">Late Shift</span>
               <span class="ipb-desc">Post-midnight travel</span>
             </button>
-            <button class="intake-persona-btn" id="intake-persona-elderly"
-              data-persona="elderly" onclick="intakeSelectPersona(this)">
+            <button class="intake-persona-btn" id="intake-persona-elderly" data-persona="elderly"
+              onclick="intakeSelectPersona(this)">
               <span class="ipb-icon">🧓</span>
               <span class="ipb-name">Elderly</span>
               <span class="ipb-desc">Accessible &amp; calm</span>
             </button>
+          </div>
+        </div>
+
+        <!-- Optional Trusted Contact & Check-in (Pre-Trip UX) -->
+        <div class="field-group pre-trip-safety-box">
+          <div class="pretrip-header-row">
+            <div>
+              <label class="field-label" style="margin-bottom:2px">🛡️ Stay connected during your journey</label>
+              <p class="pretrip-help-text">Choose a trusted contact and optionally enable periodic check-ins. If you
+                miss a check-in, your trusted contact can be alerted.</p>
+            </div>
+            <label class="pretrip-toggle" title="Enable optional trusted contact check-in">
+              <input type="checkbox" id="intake-checkin-enabled" onchange="togglePreTripCheckin(this.checked)"
+                checked />
+              <span class="pretrip-slider"></span>
+            </label>
+          </div>
+          <div id="pretrip-options" class="pretrip-options">
+            <div class="pretrip-row">
+              <div class="pretrip-col">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px">
+                  <label class="pretrip-mini-label" for="intake-contact-select">Trusted Contact</label>
+                  <button type="button" class="pretrip-manage-link" onclick="openContactsModal()">👥 All
+                    Contacts</button>
+                </div>
+                <div style="display:flex; gap:6px;">
+                  <select id="intake-contact-select" class="pretrip-select" style="flex:1"
+                    onchange="handleContactSelect(this.value)">
+                    <option value="demo-contact-001" selected>Mom (+91-9876543210)</option>
+                    <option value="custom">➕ Add New Contact...</option>
+                  </select>
+                </div>
+              </div>
+              <div class="pretrip-col">
+                <label class="pretrip-mini-label" for="intake-interval-select" style="margin-bottom:4px">Check-in
+                  Interval</label>
+                <select id="intake-interval-select" class="pretrip-select" onchange="handleIntervalSelect(this.value)">
+                  <option value="10" selected>Every 10 minutes</option>
+                  <option value="15">Every 15 minutes</option>
+                  <option value="20">Every 20 minutes</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Inline Add Contact Panel on Initial Page -->
+            <div id="custom-contact-box" class="custom-contact-box hidden">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:11px; font-weight:700; color:#22d17c">➕ Register New Trusted Contact</span>
+                <button type="button"
+                  style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:14px"
+                  onclick="toggleInlineAddContact(false)">✕</button>
+              </div>
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+                <input type="text" id="custom-contact-name" class="pretrip-input"
+                  placeholder="Full Name (e.g. Dad, Sarah)" />
+                <input type="text" id="custom-contact-phone" class="pretrip-input"
+                  placeholder="Phone or email (+91...)" />
+              </div>
+              <div style="display:flex; justify-content:flex-end; gap:8px;">
+                <button type="button" class="btn-secondary" style="padding:6px 12px; font-size:11px"
+                  onclick="toggleInlineAddContact(false)">Cancel</button>
+                <button type="button" class="pretrip-save-btn" onclick="saveCustomContact()">✓ Save &amp; Select
+                  Contact</button>
+              </div>
+            </div>
+            <p class="pretrip-disclaimer">Optional feature. Location is only shared while your journey is active. Does
+              not replace emergency services.</p>
           </div>
         </div>
 
@@ -171,19 +239,27 @@
               ← Edit trip
             </button>
             <div class="logo" aria-hidden="true">
-              <img src="bellago-logo.png" alt="bella go" style="height:36px;width:auto;object-fit:contain;vertical-align:middle;" />
+              <img src="bellago-logo.png" alt="bella go"
+                style="height:36px;width:auto;object-fit:contain;vertical-align:middle;" />
             </div>
           </div>
 
-          <!-- Feature Action Strip: Safety Assistant, Escape Mode, What-If Simulator & Reset -->
+          <!-- Feature Action Strip: Safety Assistant, What-If, Contacts, Escape & Reset -->
           <div class="action-header-bar">
-            <button class="header-action-btn assistant-trigger-btn" onclick="toggleAssistant(true)" title="Ask Safety Assistant">
+            <button class="header-action-btn assistant-trigger-btn" onclick="toggleAssistant(true)"
+              title="Ask Safety Assistant">
               💬 Assistant
             </button>
-            <button class="header-action-btn whatif-trigger-btn" onclick="openWhatIfModal()" title="Dynamic Persona & What-If Simulator">
+            <button class="header-action-btn whatif-trigger-btn" onclick="openWhatIfModal()"
+              title="Dynamic Persona & What-If Simulator">
               🔮 What-If
             </button>
-            <button class="header-action-btn escape-trigger-btn" onclick="triggerEscapeMode()" title="Trigger Emergency Escape Mode">
+            <button class="header-action-btn contact-trigger-btn" onclick="openContactsModal()"
+              title="Manage Trusted Contacts">
+              👥 Contacts
+            </button>
+            <button class="header-action-btn escape-trigger-btn" onclick="triggerEscapeMode()"
+              title="Trigger Emergency Escape Mode">
               🚨 ESCAPE
             </button>
             <button class="header-action-btn reset-trigger-btn" onclick="resetDemoState()" title="Reset Demo Data">
@@ -201,24 +277,21 @@
           <!-- Persona & Time strip (dashboard copy — drives live backend rescoring) -->
           <div class="dashboard-controls-row">
             <div id="persona-strip" role="group" aria-label="Change travel persona">
-              <button class="persona-btn active" id="persona-solo"
-                data-persona="solo" onclick="selectPersona(this)">
+              <button class="persona-btn active" id="persona-solo" data-persona="solo" onclick="selectPersona(this)">
                 <span class="icon">🚶</span> Solo
               </button>
-              <button class="persona-btn" id="persona-kids"
-                data-persona="kids" onclick="selectPersona(this)">
+              <button class="persona-btn" id="persona-kids" data-persona="kids" onclick="selectPersona(this)">
                 <span class="icon">👨‍👧</span> Kids
               </button>
-              <button class="persona-btn" id="persona-shift"
-                data-persona="shift" onclick="selectPersona(this)">
+              <button class="persona-btn" id="persona-shift" data-persona="shift" onclick="selectPersona(this)">
                 <span class="icon">🌙</span> Shift
               </button>
-              <button class="persona-btn" id="persona-elderly"
-                data-persona="elderly" onclick="selectPersona(this)">
+              <button class="persona-btn" id="persona-elderly" data-persona="elderly" onclick="selectPersona(this)">
                 <span class="icon">🧓</span> Elderly
               </button>
             </div>
-            <select class="dash-time-select" id="dash-time-select" onchange="handleTimeChange(this.value)" aria-label="Select travel hour">
+            <select class="dash-time-select" id="dash-time-select" onchange="handleTimeChange(this.value)"
+              aria-label="Select travel hour">
               <option value="22" selected>10 PM</option>
               <option value="19">7 PM</option>
               <option value="14">2 PM</option>
@@ -232,18 +305,30 @@
           <div class="input-row">
             <div class="input-wrapper">
               <span class="input-icon" aria-hidden="true">📍</span>
-              <input class="route-input" id="input-origin" type="text"
-                placeholder="From…" aria-label="Starting location" />
+              <input class="route-input" id="input-origin" type="text" placeholder="From…"
+                aria-label="Starting location" />
             </div>
           </div>
           <div class="input-row">
             <div class="input-wrapper">
               <span class="input-icon" aria-hidden="true">🏁</span>
-              <input class="route-input" id="input-dest" type="text"
-                placeholder="To…" aria-label="Destination" />
+              <input class="route-input" id="input-dest" type="text" placeholder="To…" aria-label="Destination" />
             </div>
             <button id="find-btn" onclick="handleFindRoutes()" aria-label="Update routes">🔍</button>
           </div>
+        </div>
+
+        <!-- Trusted Safety Contact Quick Strip (Route Page) -->
+        <div class="dashboard-contact-strip" id="dashboard-contact-strip" onclick="openContactsModal()"
+          title="Click to view, change, or add trusted contacts">
+          <div class="dcs-left">
+            <span class="dcs-icon">🛡️</span>
+            <div>
+              <div class="dcs-title">Trusted Contact: <strong id="dcs-contact-name">Mom</strong></div>
+              <div class="dcs-sub" id="dcs-contact-method">+91-9876543210 · Auto-alerted if check-in missed</div>
+            </div>
+          </div>
+          <button type="button" class="dcs-change-btn">Change / Add ✏️</button>
         </div>
 
         <!-- Route cards -->
@@ -269,7 +354,8 @@
               <div class="escape-icon">🛡️</div>
               <div class="escape-details">
                 <div class="escape-title" id="escape-refuge-name">Navigating to Nearest Refuge</div>
-                <div class="escape-sub" id="escape-refuge-sub">Alert dispatched to trusted contacts &amp; local authorities</div>
+                <div class="escape-sub" id="escape-refuge-sub">Alert dispatched to trusted contacts &amp; local
+                  authorities</div>
               </div>
             </div>
             <button class="escape-exit-btn" onclick="exitEscapeMode()">
@@ -310,7 +396,10 @@
         <div id="selected-banner">
           <div>
             <div class="banner-text" id="banner-route-name">Route Selected</div>
-            <div class="banner-sub"  id="banner-route-sub">Score: — · — min</div>
+            <div class="banner-sub" id="banner-route-sub">Score: — · — min</div>
+            <div class="banner-contact-sub" onclick="openContactsModal()" title="Click to change or add contacts">
+              🛡️ Alert Contact: <strong id="banner-contact-name">Mom</strong> ✏️
+            </div>
           </div>
           <button class="banner-btn" onclick="startWalkSession()" id="proceed-btn">
             🚶 Start Safe Walk →
@@ -326,6 +415,48 @@
             </div>
             <div class="walk-privacy-badge" onclick="openPrivacyModal()" title="View Location Sharing Privacy">
               🔒 <span id="walk-privacy-text">Sharing with Trusted Contact</span>
+            </div>
+          </div>
+
+          <!-- Small Status Component (Periodic Check-in UX) -->
+          <div id="safety-checkin-card" class="safety-checkin-card hidden">
+            <div class="scc-header">
+              <div class="scc-title-wrap">
+                <span class="scc-shield">🛡️</span>
+                <span class="scc-title" id="scc-title">Safety Check-in Active</span>
+              </div>
+              <span class="scc-status-tag" id="scc-status-tag">Active</span>
+            </div>
+
+            <!-- Normal active info -->
+            <div class="scc-grid" id="scc-grid">
+              <div class="scc-cell">
+                <div class="scc-lbl">Next check-in:</div>
+                <div class="scc-data" id="scc-next-val">--:--</div>
+              </div>
+              <div class="scc-cell">
+                <div class="scc-lbl">ETA:</div>
+                <div class="scc-data" id="scc-eta-val">--:--</div>
+              </div>
+              <div class="scc-cell">
+                <div class="scc-lbl">Contact:</div>
+                <div class="scc-data clickable-contact" id="scc-contact-val" onclick="openContactsModal()"
+                  title="Click to change or add contacts">Mom ✏️</div>
+              </div>
+            </div>
+
+            <!-- Missed check-in alert (non-alarming) -->
+            <div class="scc-missed-wrap hidden" id="scc-missed-wrap">
+              <div class="scc-missed-headline">Check-in missed</div>
+              <div class="scc-missed-explanation" id="scc-missed-explanation">
+                We haven't received your check-in yet.
+              </div>
+            </div>
+
+            <div class="scc-action-row">
+              <button class="scc-imsafe-btn" id="scc-imsafe-btn" onclick="handleImSafeClick()">
+                ✓ I'm Safe
+              </button>
             </div>
           </div>
 
@@ -347,7 +478,8 @@
             <div class="alert-icon-wrap">⏱️</div>
             <div class="alert-content">
               <div class="alert-title">Walking Delay Alert</div>
-              <div class="alert-desc" id="delay-desc">Progress is slower than expected (+6 min delay). Overdue alert monitored.</div>
+              <div class="alert-desc" id="delay-desc">Progress is slower than expected (+6 min delay). Overdue alert
+                monitored.</div>
             </div>
             <button class="alert-action-btn btn-dismiss" onclick="dismissDelayAlert()">Got it</button>
           </div>
@@ -378,7 +510,10 @@
             </button>
             <div class="walk-sim-group">
               <button class="sim-btn" onclick="simulateStep()" title="Simulate walking step">▶ Step</button>
-              <button class="sim-btn" onclick="simulateDeviation()" title="Simulate 180m deviation off corridor">⚠️ Deviate</button>
+              <button class="sim-btn" onclick="simulateMissedCheckin()" title="Simulate missed check-in deadline">⏳ Miss
+                Check-in</button>
+              <button class="sim-btn" onclick="simulateDeviation()" title="Simulate 180m deviation off corridor">⚠️
+                Deviate</button>
               <button class="sim-btn" onclick="simulateDelay()" title="Simulate ETA delay">⏱️ Delay</button>
             </div>
             <button class="walk-end-btn" onclick="completeWalkSession()">
@@ -399,7 +534,7 @@
       <div class="assistant-title">
         <span class="assistant-bot-icon">🛡️</span>
         <div>
-          <strong>SafeRoute Assistant</strong>
+          <strong>Bella Go Assistant</strong>
           <div class="assistant-sub">Powered by Track A Safety Engine</div>
         </div>
       </div>
@@ -408,22 +543,30 @@
     <div class="assistant-messages" id="assistant-messages">
       <div class="chat-msg bot-msg">
         <div class="msg-bubble">
-          Hello! I'm your SafeRoute Safety Assistant. Ask me anything about route lighting, safety scores, crowd density, or nearby safe islands!
+          Hello! I'm your Bella Go Safety Assistant. Ask me anything about route lighting, safety scores, crowd density,
+          or nearby safe islands!
         </div>
       </div>
     </div>
     <div class="assistant-prompt-chips">
-      <button class="prompt-chip" onclick="sendAssistantQuery('Is this route safe for me at 10 PM?')">Is this route safe at 10 PM?</button>
-      <button class="prompt-chip" onclick="sendAssistantQuery('Why is this route safer?')">Why is this route safer?</button>
-      <button class="prompt-chip" onclick="sendAssistantQuery('Where can I go if I feel unsafe?')">Nearest safe island?</button>
-      <button class="prompt-chip" onclick="sendAssistantQuery('What if I travel alone?')">What if I travel alone?</button>
+      <button class="prompt-chip" onclick="sendAssistantQuery('Is this route safe for me at 10 PM?')">Is this route safe
+        at 10 PM?</button>
+      <button class="prompt-chip" onclick="sendAssistantQuery('Why is this route safer?')">Why is this route
+        safer?</button>
+      <button class="prompt-chip" onclick="sendAssistantQuery('Where can I go if I feel unsafe?')">Nearest safe
+        island?</button>
+      <button class="prompt-chip" onclick="sendAssistantQuery('What if I travel alone?')">What if I travel
+        alone?</button>
     </div>
     <div class="assistant-input-bar">
-      <input type="text" id="assistant-input" placeholder="Ask about route safety, lighting, safe islands..." onkeydown="if(event.key==='Enter') sendAssistantQuery()" />
+      <input type="text" id="assistant-input" placeholder="Ask about route safety, lighting, safe islands..."
+        onkeydown="if(event.key==='Enter') sendAssistantQuery()" />
       <button id="assistant-send-btn" onclick="sendAssistantQuery()">Send</button>
     </div>
+  </div>
   <!-- ── POST-WALK FEEDBACK MODAL (Track D) ── -->
-  <div id="feedback-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
+  <div id="feedback-modal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+    aria-labelledby="feedback-title">
     <div class="modal-card">
       <div class="modal-header">
         <div class="modal-icon">🌟</div>
@@ -446,17 +589,24 @@
         <div class="tags-group">
           <label class="tags-label">Safety observations along your corridor:</label>
           <div class="feedback-tag-grid" id="feedback-tag-grid">
-            <button type="button" class="tag-chip active" onclick="toggleTag(this)" data-tag="well_lit">💡 Well-Lit</button>
-            <button type="button" class="tag-chip active" onclick="toggleTag(this)" data-tag="active_crowd">👥 Active Crowd</button>
-            <button type="button" class="tag-chip" onclick="toggleTag(this)" data-tag="dim_lighting">🌑 Dim Stretches</button>
-            <button type="button" class="tag-chip" onclick="toggleTag(this)" data-tag="isolated_stretch">🏚️ Isolated Path</button>
-            <button type="button" class="tag-chip" onclick="toggleTag(this)" data-tag="felt_uneasy">⚠️ Felt Uneasy</button>
-            <button type="button" class="tag-chip" onclick="toggleTag(this)" data-tag="open_shops">🏪 Open Stores</button>
+            <button type="button" class="tag-chip active" onclick="toggleTag(this)" data-tag="well_lit">💡
+              Well-Lit</button>
+            <button type="button" class="tag-chip active" onclick="toggleTag(this)" data-tag="active_crowd">👥 Active
+              Crowd</button>
+            <button type="button" class="tag-chip" onclick="toggleTag(this)" data-tag="dim_lighting">🌑 Dim
+              Stretches</button>
+            <button type="button" class="tag-chip" onclick="toggleTag(this)" data-tag="isolated_stretch">🏚️ Isolated
+              Path</button>
+            <button type="button" class="tag-chip" onclick="toggleTag(this)" data-tag="felt_uneasy">⚠️ Felt
+              Uneasy</button>
+            <button type="button" class="tag-chip" onclick="toggleTag(this)" data-tag="open_shops">🏪 Open
+              Stores</button>
           </div>
         </div>
 
         <div class="feedback-comment-wrap">
-          <textarea id="feedback-comment" placeholder="Optional comments on route safety, lighting, or refuge access..." rows="2"></textarea>
+          <textarea id="feedback-comment" placeholder="Optional comments on route safety, lighting, or refuge access..."
+            rows="2"></textarea>
         </div>
       </div>
       <div class="modal-footer">
@@ -493,12 +643,17 @@
           </div>
         </div>
         <div class="privacy-explanation">
-          <p>🛡️ <strong>Temporary Session Lifespan</strong>: Your GPS coordinates are broadcast exclusively while your route check-in is active.</p>
-          <p>🛑 <strong>Automatic Termination</strong>: The exact moment you complete your walk, trigger finish, or reach your destination, all live location sharing immediately terminates.</p>
-          <p>🔐 <strong>No Third-Party Ad Tracking</strong>: Coordinates are never retained for ad profiling or commercial resale.</p>
+          <p>🛡️ <strong>Temporary Session Lifespan</strong>: Your GPS coordinates are broadcast exclusively while your
+            route check-in is active.</p>
+          <p>🛑 <strong>Automatic Termination</strong>: The exact moment you complete your walk, trigger finish, or
+            reach your destination, all live location sharing immediately terminates.</p>
+          <p>🔐 <strong>No Third-Party Ad Tracking</strong>: Coordinates are never retained for ad profiling or
+            commercial resale.</p>
         </div>
       </div>
       <div class="modal-footer">
+        <button class="btn-secondary" onclick="closePrivacyModal(); openContactsModal()">Manage Trusted
+          Contacts</button>
         <button class="btn-primary" onclick="closePrivacyModal()">Understood</button>
       </div>
     </div>
@@ -582,12 +737,54 @@
     </div>
   </div>
 
+  <!-- ── TRUSTED CONTACTS MANAGER MODAL (Track D) ── -->
+  <div id="contacts-modal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+    aria-labelledby="contacts-modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-icon">👥</div>
+        <div>
+          <h2 class="modal-title" id="contacts-modal-title">Trusted Contacts</h2>
+          <p class="modal-sub">Choose or register who gets alerted if you miss a check-in</p>
+        </div>
+        <button class="modal-close-btn" onclick="closeContactsModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="contacts-list-title">Saved Trusted Contacts (Click to select)</div>
+        <div class="contacts-list" id="modal-contacts-list">
+          <!-- Populated dynamically via renderContactsModal() -->
+        </div>
+
+        <div class="add-contact-form">
+          <div class="add-contact-title">➕ Register New Trusted Contact</div>
+          <div class="add-contact-grid">
+            <input type="text" id="modal-contact-name" class="pretrip-input"
+              placeholder="Full Name (e.g. Dad, Sarah)" />
+            <input type="text" id="modal-contact-method" class="pretrip-input" placeholder="Phone or Email (+91...)" />
+          </div>
+          <button type="button" class="btn-primary" style="margin-top:8px;width:100%" onclick="saveContactFromModal()">
+            Save Trusted Contact
+          </button>
+        </div>
+
+        <p class="pretrip-disclaimer" style="margin-top:4px">
+          🔒 <strong>Privacy Assurance</strong>: Your contact is only notified if you miss an active journey check-in
+          deadline or trigger emergency SOS. Coordinates are never continuously broadcast.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-primary" onclick="closeContactsModal()">Done</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast notification -->
   <div id="toast" role="status" aria-live="polite"></div>
 
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="app.js"></script>
+  <script src="app.js?v=7"></script>
 
 </body>
+
 </html>

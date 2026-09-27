@@ -225,11 +225,11 @@
           }
         }
       } catch (err) {
-        console.warn('[SafeRoute] Primary OSRM call failed:', err.message);
+        console.warn('[Bella Go] Primary OSRM call failed:', err.message);
       }
 
       if (osrmRoutes.length < 3) {
-        console.warn(`[SafeRoute] OSRM returned ${osrmRoutes.length} routes — padding to 3`);
+        console.warn(`[Bella Go] OSRM returned ${osrmRoutes.length} routes — padding to 3`);
         const sides = [1, -1];
         for (let sIdx = 0; sIdx < sides.length && osrmRoutes.length < 3; sIdx++) {
           try {
@@ -238,7 +238,7 @@
               osrmRoutes.push(viaRoute);
             }
           } catch (viaErr) {
-            console.warn('[SafeRoute] Via-offset route failed:', viaErr.message);
+            console.warn('[Bella Go] Via-offset route failed:', viaErr.message);
           }
         }
       }
@@ -426,7 +426,7 @@
             }
           }
         } catch (err) {
-          console.log('[SafeRoute] Backend /api/routes/score unavailable, falling back to local engine:', err.message);
+          console.log('[Bella Go] Backend /api/routes/score unavailable, falling back to local engine:', err.message);
         }
       }
 
@@ -563,7 +563,7 @@
             if (json && Array.isArray(json.routes) && json.routes.length > 0) backendData = json;
           }
         } catch (err) {
-          console.log('[SafeRoute] Backend unreachable, falling back to OSRM:', err.message);
+          console.log('[Bella Go] Backend unreachable, falling back to OSRM:', err.message);
         }
 
         // Validate backend routes
@@ -576,7 +576,7 @@
               validBackendRoutes.push(r);
             } else {
               anyDiscarded = true;
-              console.warn(`[SafeRoute] Backend route "${r.label}" discarded — origin/dest mismatch.`);
+              console.warn(`[Bella Go] Backend route "${r.label}" discarded — origin/dest mismatch.`);
             }
           });
         }
@@ -603,7 +603,7 @@
               });
               finalRoutes.push(...backfillItems);
               dataSource = 'Backend + Live Road Data';
-            } catch (err) { console.warn('[SafeRoute] OSRM backfill failed:', err.message); }
+            } catch (err) { console.warn('[Bella Go] OSRM backfill failed:', err.message); }
           }
         }
 
@@ -660,7 +660,7 @@
         };
 
       } catch (err) {
-        console.warn('[SafeRoute] Live APIs failed, falling back to mock:', err.message);
+        console.warn('[Bella Go] Live APIs failed, falling back to mock:', err.message);
         showToast('⚠️ Live data unavailable — showing demo routes', 3500);
         const data = JSON.parse(JSON.stringify(MOCK_ROUTES_DATA));
         data.meta.city = 'Demo Data';
@@ -799,6 +799,57 @@
      * Reads intake form, validates, copies values to dashboard inputs,
      * then calls handleFindRoutes().
      */
+    async function useMyLocation() {
+      const btn = document.querySelector('.use-location-btn');
+      const input = document.getElementById('intake-origin');
+      if (!input) return;
+
+      if (!navigator.geolocation) {
+        showToast('❌ Geolocation is not supported by your browser');
+        return;
+      }
+
+      // Show loading state
+      const originalText = btn ? btn.textContent : '';
+      if (btn) { btn.textContent = '⏳ Locating…'; btn.classList.add('loading'); }
+
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+
+          // Try reverse geocoding via Nominatim
+          try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`);
+            if (res.ok) {
+              const data = await res.json();
+              const addr = data.address || {};
+              const name = data.display_name
+                ? data.display_name.split(',').slice(0, 3).join(',').trim()
+                : `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+              input.value = name;
+              showToast('📍 Current location set!');
+            } else {
+              input.value = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+              showToast('📍 Location coordinates set');
+            }
+          } catch (err) {
+            input.value = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+            showToast('📍 Location coordinates set');
+          }
+
+          if (btn) { btn.textContent = originalText; btn.classList.remove('loading'); }
+        },
+        (err) => {
+          console.warn('[Bella Go] Geolocation error:', err.message);
+          showToast('❌ Could not get your location. Please allow location access.');
+          if (btn) { btn.textContent = originalText; btn.classList.remove('loading'); }
+        },
+        { timeout: 10000, enableHighAccuracy: true }
+      );
+    }
+    window.useMyLocation = useMyLocation;
+
     function handleIntakeSubmit() {
       const originText = document.getElementById('intake-origin').value.trim();
       const destText   = document.getElementById('intake-dest').value.trim();
@@ -1126,10 +1177,10 @@
         const sourceText = isMixed ? 'Backend + Live road data' : isBackend ? 'Backend API' : isLive ? 'Live road data' : 'Demo data';
         showToast(`${sourceIcon} ${data.routes.length} routes · ${sourceText}`);
 
-        console.log('[SafeRoute] Routes loaded. rawRouteData saved for live rescoring.');
+        console.log('[Bella Go] Routes loaded. rawRouteData saved for live rescoring.');
 
       } catch (err) {
-        console.error('[SafeRoute] Unhandled error in handleFindRoutes:', err);
+        console.error('[Bella Go] Unhandled error in handleFindRoutes:', err);
         showToast('❌ Could not load routes — check your connection');
       } finally {
         setLoadingText('Scoring routes…');
@@ -1159,6 +1210,24 @@
       document.getElementById('input-dest').addEventListener('keydown', e => {
         if (e.key === 'Enter') handleFindRoutes();
       });
+
+      // Initialize persistent contacts
+      loadSavedContacts();
+      updateContactDropdowns();
+
+      // Enter key on contact inputs
+      document.getElementById('custom-contact-name')?.addEventListener('keydown', e => {
+        if (e.key === 'Enter') saveCustomContact();
+      });
+      document.getElementById('custom-contact-phone')?.addEventListener('keydown', e => {
+        if (e.key === 'Enter') saveCustomContact();
+      });
+      document.getElementById('modal-contact-name')?.addEventListener('keydown', e => {
+        if (e.key === 'Enter') saveContactFromModal();
+      });
+      document.getElementById('modal-contact-method')?.addEventListener('keydown', e => {
+        if (e.key === 'Enter') saveContactFromModal();
+      });
     });
 
     // =====================================================
@@ -1167,10 +1236,21 @@
     function toggleAssistant(open) {
       const el = document.getElementById('assistant-drawer');
       if (!el) return;
+      let isHidden;
       if (open === undefined) {
-        el.classList.toggle('hidden');
+        isHidden = !el.classList.contains('hidden');
       } else {
-        el.classList.toggle('hidden', !open);
+        isHidden = !open;
+      }
+      if (isHidden) {
+        el.classList.add('hidden');
+        el.style.setProperty('display', 'none', 'important');
+      } else {
+        el.classList.remove('hidden');
+        el.style.removeProperty('display');
+        el.style.setProperty('opacity', '1', 'important');
+        el.style.setProperty('pointer-events', 'auto', 'important');
+        el.style.setProperty('transform', 'none', 'important');
       }
     }
 
@@ -1205,7 +1285,7 @@
         const reply = await generateAssistantReply(query);
         botDiv.innerHTML = `<div class="msg-bubble">${reply}</div>`;
       } catch (err) {
-        console.warn('[SafeRoute] Assistant generation error:', err);
+        console.warn('[Bella Go] Assistant generation error:', err);
         botDiv.innerHTML = `<div class="msg-bubble">I am analyzing the latest safety data for your route. Lighting, crowd, and safe island proximity are active.</div>`;
       }
       messages.scrollTop = messages.scrollHeight;
@@ -1259,7 +1339,7 @@
               return `<strong>${escapeHtml(activeRoute.label)}</strong> — Safety Tier: <strong style="color:${scoreColor(activeRoute.score)}">${explainData.safety_tier}</strong> (${activeRoute.score}/100)<br/><br/>${explainData.explanation}<br/><br/><strong>Key Strengths:</strong><ul style="margin:4px 0 6px 16px">${strengths || '<li>High arterial visibility</li>'}</ul>${risks ? `<strong>Cautions:</strong><ul style="margin:4px 0 6px 16px">${risks}</ul>` : ''}`;
             }
           } catch (err) {
-            console.warn('[SafeRoute] /api/routes/explain error:', err);
+            console.warn('[Bella Go] /api/routes/explain error:', err);
           }
 
           // Fallback explanation if backend unreachable
@@ -1277,7 +1357,7 @@
 
       // ── Intent 5: Persona Questions (Solo / Woman / Kids / Elderly) ──
       if (q.includes('alone') || q.includes('solo') || q.includes('woman') || q.includes('kids') || q.includes('elderly') || q.includes('shift')) {
-        return `SafeRoute dynamically adjusts composite weights for each profile:
+        return `Bella Go dynamically adjusts composite weights for each profile:
         <br/>• <strong>Solo / Night</strong>: Heavily weights street lighting (30%) & avoids dead ends (25%).
         <br/>• <strong>With Kids</strong>: Prioritizes commercial density (20%) & transit proximity (20%).
         <br/>• <strong>Late Shift</strong>: Highest lighting requirement (30%) for post-midnight corridors.
@@ -1306,7 +1386,7 @@
         return `Based on live safety telemetry for <strong>${activeRoute.label}</strong>: Composite Safety Score is <strong>${activeRoute.score}/100</strong> (${scoreClass(activeRoute.score).replace('score-', '').toUpperCase()}), with <strong>${activeRoute.safe_islands.length}</strong> safe islands along the path. Ask me about lighting, night travel, or emergency refuges!`;
       }
 
-      return `I'm your SafeRoute AI Assistant, wired into Track A's ML scoring and Track B's refuge network. How can I help you navigate safely?`;
+      return `I'm your Bella Go AI Assistant, wired into Track A's ML scoring and Track B's refuge network. How can I help you navigate safely?`;
     }
 
     function escapeHtml(str) {
@@ -1314,19 +1394,281 @@
     }
 
     // =====================================================
-    //  FEATURE 3 — TRACK D: ACTIVE WALK SESSION & TRACKING
+    //  FEATURE 3 — TRACK D: TRUSTED CONTACT & PERIODIC CHECK-IN UX
     // =====================================================
-    let isWalkActive         = false;
-    let activeCheckinId      = null;
-    let walkTimerInterval    = null;
-    let walkElapsedSec       = 0;
-    let walkTotalSec         = 0;
-    let walkCurrentStepIndex = 0;
-    let walkSelectedRoute    = null;
-    let walkUserMarker       = null;
-    let activeFeedbackRating = 5;
-    let activeFeedbackTags   = new Set(['well_lit', 'active_crowd']);
+    let isWalkActive            = false;
+    let activeCheckinId         = null;
+    let walkTimerInterval       = null;
+    let walkElapsedSec          = 0;
+    let walkTotalSec            = 0;
+    let walkCurrentStepIndex    = 0;
+    let walkSelectedRoute       = null;
+    let walkUserMarker          = null;
+    let activeFeedbackRating    = 5;
+    let activeFeedbackTags      = new Set(['well_lit', 'active_crowd']);
 
+    // Pre-trip configurable settings (optional safety check-in)
+    let checkinEnabled          = true;
+    let selectedContactId       = 'demo-contact-001';
+    let selectedContactName     = 'Mom';
+    let selectedContactMethod   = '+91-9876543210';
+    let checkinIntervalMinutes  = 10;
+    let nextCheckinTimestamp    = null;
+    let backendExpectedAtIso    = null;
+    let statusPollingInterval   = null;
+    let isCheckinMissed         = false;
+
+    // ── Track D: Persistent Trusted Contacts Store ──
+    let savedContacts = [
+      { contact_id: 'demo-contact-001', name: 'Mom', contact_method: '+91-9876543210' }
+    ];
+
+    function loadSavedContacts() {
+      try {
+        const raw = localStorage.getItem('saferoute_contacts');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            savedContacts = parsed;
+          }
+        }
+      } catch (e) {}
+    }
+
+    function persistSavedContacts() {
+      try {
+        localStorage.setItem('saferoute_contacts', JSON.stringify(savedContacts));
+      } catch (e) {}
+    }
+
+    function updateContactDropdowns() {
+      const sel = document.getElementById('intake-contact-select');
+      if (!sel) return;
+      sel.innerHTML = '';
+      savedContacts.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.contact_id;
+        opt.textContent = `${c.name} (${c.contact_method})`;
+        if (c.contact_id === selectedContactId) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      const customOpt = document.createElement('option');
+      customOpt.value = 'custom';
+      customOpt.textContent = '➕ Add New Contact...';
+      sel.appendChild(customOpt);
+    }
+
+    function toggleInlineAddContact(show) {
+      const box = document.getElementById('custom-contact-box');
+      if (!box) return;
+      if (show === undefined) {
+        box.classList.toggle('hidden');
+      } else if (show) {
+        box.classList.remove('hidden');
+        document.getElementById('custom-contact-name')?.focus();
+      } else {
+        box.classList.add('hidden');
+      }
+    }
+
+    function selectContact(contactId) {
+      const found = savedContacts.find(c => c.contact_id === contactId);
+      if (!found) return;
+      selectedContactId     = found.contact_id;
+      selectedContactName   = found.name;
+      selectedContactMethod = found.contact_method;
+
+      updateContactDropdowns();
+
+      // Update safety check-in status card
+      const sccContact = document.getElementById('scc-contact-val');
+      if (sccContact) sccContact.textContent = `${found.name} ✏️`;
+
+      // Update route page dashboard strip
+      const dcsName = document.getElementById('dcs-contact-name');
+      if (dcsName) dcsName.textContent = found.name;
+      const dcsMethod = document.getElementById('dcs-contact-method');
+      if (dcsMethod) dcsMethod.textContent = `${found.contact_method} · Auto-alerted if check-in missed`;
+
+      // Update selected route banner
+      const bannerContact = document.getElementById('banner-contact-name');
+      if (bannerContact) bannerContact.textContent = found.name;
+
+      // Update privacy modal
+      const privContact = document.getElementById('privacy-contact');
+      if (privContact) privContact.textContent = `${found.name} (${found.contact_method})`;
+
+      const walkPriv = document.getElementById('walk-privacy-text');
+      if (walkPriv) walkPriv.textContent = `Sharing with ${found.name}`;
+
+      renderContactsModal();
+      showToast(`✓ Active trusted contact: ${found.name}`);
+    }
+
+    function openContactsModal() {
+      loadSavedContacts();
+      const modal = document.getElementById('contacts-modal');
+      if (modal) {
+        modal.classList.remove('hidden');
+        modal.style.setProperty('display', 'flex', 'important');
+        modal.style.setProperty('opacity', '1', 'important');
+        modal.style.setProperty('pointer-events', 'auto', 'important');
+        modal.style.setProperty('transform', 'none', 'important');
+      }
+      renderContactsModal();
+    }
+
+    function closeContactsModal() {
+      const modal = document.getElementById('contacts-modal');
+      if (modal) {
+        modal.classList.add('hidden');
+        modal.style.setProperty('display', 'none', 'important');
+      }
+    }
+
+    function renderContactsModal() {
+      const listEl = document.getElementById('modal-contacts-list');
+      if (!listEl) return;
+      listEl.innerHTML = '';
+
+      savedContacts.forEach(c => {
+        const isSelected = c.contact_id === selectedContactId;
+        const item = document.createElement('div');
+        item.className = `contact-card-item${isSelected ? ' selected' : ''}`;
+        item.onclick = () => selectContact(c.contact_id);
+
+        item.innerHTML = `
+          <div class="contact-card-info">
+            <span class="contact-card-name">${escapeHtml(c.name)}</span>
+            <span class="contact-card-method">📞 ${escapeHtml(c.contact_method)}</span>
+          </div>
+          ${isSelected 
+            ? '<span class="contact-selected-pill">✓ Active</span>' 
+            : '<span class="contact-select-btn">Select</span>'}
+        `;
+        listEl.appendChild(item);
+      });
+    }
+
+    async function registerAndSaveContact(name, method) {
+      if (!name || !method) {
+        showToast('Please enter both name and contact destination (phone/email)');
+        return false;
+      }
+
+      let newContactId = 'contact-' + Date.now();
+      try {
+        const res = await fetch('http://localhost:8000/api/v1/contacts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name, contact_method: method })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          newContactId = data.contact_id;
+        } else {
+          const errData = await res.json().catch(() => null);
+          console.warn('[Bella Go] Backend contact registration note:', res.status, errData);
+        }
+      } catch (err) {
+        console.warn('[Bella Go] Backend offline, registering contact locally:', err.message);
+      }
+
+      const newContact = {
+        contact_id: newContactId,
+        name: name,
+        contact_method: method
+      };
+
+      const existingIdx = savedContacts.findIndex(c => c.name.toLowerCase() === name.toLowerCase());
+      if (existingIdx >= 0) {
+        savedContacts[existingIdx] = newContact;
+      } else {
+        savedContacts.push(newContact);
+      }
+      persistSavedContacts();
+
+      selectContact(newContact.contact_id);
+      showToast(`✓ Trusted contact "${name}" registered and activated!`);
+      return true;
+    }
+
+    async function saveContactFromModal() {
+      const nameInput   = document.getElementById('modal-contact-name');
+      const methodInput = document.getElementById('modal-contact-method');
+      const name   = (nameInput?.value || '').trim();
+      const method = (methodInput?.value || '').trim();
+
+      if (!name || !method) {
+        showToast('Please enter both name and phone/email');
+        return;
+      }
+
+      const ok = await registerAndSaveContact(name, method);
+      if (ok) {
+        if (nameInput) nameInput.value = '';
+        if (methodInput) methodInput.value = '';
+      }
+    }
+
+    async function saveCustomContact() {
+      const nameInput   = document.getElementById('custom-contact-name');
+      const methodInput = document.getElementById('custom-contact-phone');
+      const name   = (nameInput?.value || '').trim();
+      const method = (methodInput?.value || '').trim();
+
+      if (!name || !method) {
+        showToast('Please enter both name and phone/email');
+        return;
+      }
+
+      const ok = await registerAndSaveContact(name, method);
+      if (ok) {
+        if (nameInput) nameInput.value = '';
+        if (methodInput) methodInput.value = '';
+        toggleInlineAddContact(false);
+      }
+    }
+
+    // ── Pre-trip handlers ──
+    function togglePreTripCheckin(enabled) {
+      checkinEnabled = !!enabled;
+      const opts = document.getElementById('pretrip-options');
+      if (opts) opts.classList.toggle('hidden', !checkinEnabled);
+      showToast(checkinEnabled ? '🛡️ Safety check-in enabled' : '🔒 Safety check-in disabled (Private journey)');
+    }
+
+    function handleContactSelect(val) {
+      if (val === 'custom') {
+        toggleInlineAddContact(true);
+      } else {
+        selectContact(val);
+      }
+    }
+
+    function handleIntervalSelect(val) {
+      checkinIntervalMinutes = parseInt(val) || 10;
+    }
+
+    // Expose functions globally on window
+    window.openContactsModal = openContactsModal;
+    window.closeContactsModal = closeContactsModal;
+    window.selectContact = selectContact;
+    window.saveContactFromModal = saveContactFromModal;
+    window.saveCustomContact = saveCustomContact;
+    window.toggleInlineAddContact = toggleInlineAddContact;
+    window.toggleAssistant = toggleAssistant;
+    window.openWhatIfModal = openWhatIfModal;
+    window.closeWhatIfModal = closeWhatIfModal;
+    window.openFeedbackModal = openFeedbackModal;
+    window.closeFeedbackModal = closeFeedbackModal;
+    window.openPrivacyModal = openPrivacyModal;
+    window.closePrivacyModal = closePrivacyModal;
+    window.handleContactSelect = handleContactSelect;
+    window.handleIntervalSelect = handleIntervalSelect;
+    window.togglePreTripCheckin = togglePreTripCheckin;
+
+    // ── Trip Start ──
     async function startWalkSession() {
       const route = currentRoutes.find(r => r.id === selectedRouteId) || currentRoutes[0];
       if (!route) {
@@ -1339,27 +1681,35 @@
       walkCurrentStepIndex = 0;
       walkElapsedSec       = 0;
       walkTotalSec         = (route.eta_minutes || 25) * 60;
+      isCheckinMissed      = false;
 
-      // Register check-in on backend API (Phase 2 & Phase 3)
-      try {
-        const resp = await fetch('http://localhost:8000/api/v1/checkins', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            user_id: 'demo_user',
-            contact_id: 'demo-contact-001',
-            duration_minutes: route.eta_minutes || 25,
-            route_id: route.id
-          })
-        });
-        if (resp.ok) {
-          const json = await resp.json();
-          activeCheckinId = json.checkin_id;
-          console.log('[SafeRoute] Check-in session initialized:', activeCheckinId);
+      // Register check-in on Track B backend if enabled (OPTIONAL)
+      let backendCheckin = null;
+      if (checkinEnabled) {
+        try {
+          const resp = await fetch('http://localhost:8000/api/v1/checkins', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_id: 'demo_user',
+              contact_id: selectedContactId,
+              duration_minutes: route.eta_minutes || 25,
+              route_id: route.id
+            })
+          });
+          if (resp.ok) {
+            backendCheckin = await resp.json();
+            activeCheckinId      = backendCheckin.checkin_id;
+            backendExpectedAtIso = backendCheckin.expected_at;
+            console.log('[Bella Go] Check-in session initialized:', activeCheckinId, backendCheckin);
+          }
+        } catch (err) {
+          console.warn('[Bella Go] Checkin API fallback:', err.message);
+          activeCheckinId = 'checkin-' + Date.now();
         }
-      } catch (err) {
-        console.warn('[SafeRoute] Checkin API fallback:', err.message);
-        activeCheckinId = 'checkin-' + Date.now();
+      } else {
+        activeCheckinId      = null;
+        backendExpectedAtIso = null;
       }
 
       // Update UI panels
@@ -1370,6 +1720,43 @@
 
       dismissDeviationAlert();
       dismissDelayAlert();
+
+      // Configure Small Status Component (Periodic Check-in UX)
+      const scc = document.getElementById('safety-checkin-card');
+      if (checkinEnabled && backendCheckin) {
+        // Backend truth: expected_at
+        const etaDate = new Date(backendCheckin.expected_at);
+        const formattedEta = etaDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+        // Next check-in milestone based on interval
+        const nextDate = new Date(Date.now() + checkinIntervalMinutes * 60 * 1000);
+        if (nextDate > etaDate) nextDate.setTime(etaDate.getTime());
+        nextCheckinTimestamp = nextDate.getTime();
+        const formattedNext = nextDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+        if (scc) {
+          scc.classList.remove('hidden', 'missed');
+          document.getElementById('scc-title').textContent = 'Safety Check-in Active';
+          document.getElementById('scc-status-tag').textContent = 'Active';
+          document.getElementById('scc-next-val').textContent = formattedNext;
+          document.getElementById('scc-eta-val').textContent = formattedEta;
+          document.getElementById('scc-contact-val').textContent = selectedContactName;
+          document.getElementById('scc-missed-wrap')?.classList.add('hidden');
+        }
+
+        // Exact trip start copy requested:
+        // "Trip started"
+        // "Your trusted contact has been notified of your journey and estimated arrival."
+        // Show: destination, ETA, trusted contact, check-in interval
+        const destName = (currentMeta?.destination?.name || 'Destination').split(',')[0];
+        showToast(`Trip started · Your trusted contact (${selectedContactName}) has been notified of your journey to ${destName} (ETA: ${formattedEta}, Check-in: every ${checkinIntervalMinutes} min).`, 4500);
+
+        // Start periodic status polling
+        startStatusPolling();
+      } else {
+        if (scc) scc.classList.add('hidden');
+        showToast('Trip started (Private navigation — no contact sharing)', 3000);
+      }
 
       // Place user marker at route origin
       const startCoord = route.coordinates[0];
@@ -1390,8 +1777,106 @@
         walkElapsedSec += 1;
         updateWalkMetricsUI();
       }, 1000);
+    }
 
-      showToast(`🚶 Safe Walk started! Telemetry linked with Trusted Contact.`);
+    // ── Status Polling & Backend Truth Evaluator ──
+    function startStatusPolling() {
+      if (statusPollingInterval) clearInterval(statusPollingInterval);
+      statusPollingInterval = setInterval(async () => {
+        if (!isWalkActive || !activeCheckinId || !checkinEnabled) return;
+
+        try {
+          // Poll Track B backend status endpoint
+          const res = await fetch(`http://localhost:8000/api/v1/checkins/${activeCheckinId}/status`);
+          if (res.ok) {
+            const statusData = await res.json();
+            const isTimeMissed = nextCheckinTimestamp && Date.now() > nextCheckinTimestamp;
+            if (statusData.is_overdue || isTimeMissed) {
+              triggerMissedCheckinUI(statusData);
+            }
+          }
+        } catch (err) {}
+      }, 6000);
+    }
+
+    // ── Missed Check-in State (Non-alarming UX) ──
+    async function triggerMissedCheckinUI(backendStatus) {
+      isCheckinMissed = true;
+      const scc = document.getElementById('safety-checkin-card');
+      if (!scc) return;
+
+      scc.classList.add('missed');
+      const tag = document.getElementById('scc-status-tag');
+      if (tag) tag.textContent = 'Check-in Due';
+
+      const missedWrap = document.getElementById('scc-missed-wrap');
+      if (missedWrap) missedWrap.classList.remove('hidden');
+
+      // Check whether backend confirms an alert has been created/sent
+      let alertConfirmedSent = false;
+      try {
+        const aRes = await fetch(`http://localhost:8000/api/v1/checkins/${activeCheckinId}/alerts`);
+        if (aRes.ok) {
+          const aData = await aRes.json();
+          if (aData.items && aData.items.some(a => a.alert_status === 'sent')) {
+            alertConfirmedSent = true;
+          }
+        }
+      } catch (e) {}
+
+      // Exact prompt copy requirement:
+      // "Check-in missed"
+      // "We haven't received your check-in yet."
+      // If backend indicates an alert has been generated/sent, clearly communicate that fact.
+      // Do not claim that a message was sent unless the backend confirms it.
+      const expEl = document.getElementById('scc-missed-explanation');
+      if (expEl) {
+        if (alertConfirmedSent) {
+          expEl.textContent = `We haven't received your check-in yet. A notification reminder has been sent to ${selectedContactName}.`;
+        } else {
+          expEl.textContent = `We haven't received your check-in yet. Please confirm you are safe.`;
+        }
+      }
+    }
+
+    // ── [ I'm Safe ] Action Handler ──
+    async function handleImSafeClick() {
+      if (!isWalkActive) return;
+      isCheckinMissed = false;
+
+      // Calculate next check-in window
+      const nextDate = new Date(Date.now() + checkinIntervalMinutes * 60 * 1000);
+      if (backendExpectedAtIso) {
+        const etaDate = new Date(backendExpectedAtIso);
+        if (nextDate > etaDate) nextDate.setTime(etaDate.getTime());
+      }
+      nextCheckinTimestamp = nextDate.getTime();
+      const formattedNext = nextDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+      // Update Small Status Component back to normal active
+      const scc = document.getElementById('safety-checkin-card');
+      if (scc) {
+        scc.classList.remove('missed');
+        document.getElementById('scc-status-tag').textContent = 'Active';
+        document.getElementById('scc-next-val').textContent = formattedNext;
+        document.getElementById('scc-missed-wrap')?.classList.add('hidden');
+      }
+
+      // Send location heartbeat to Track B backend
+      const curPt = walkUserMarker ? walkUserMarker.getLatLng() : { lat: 28.6315, lng: 77.2167 };
+      sendLocationUpdate(curPt.lat, curPt.lng);
+
+      showToast(`✓ Check-in recorded — next check-in at ${formattedNext}.`, 3500);
+    }
+
+    function simulateMissedCheckin() {
+      if (!isWalkActive || !checkinEnabled) {
+        showToast('Please start a walk session with safety check-in enabled first');
+        return;
+      }
+      nextCheckinTimestamp = Date.now() - 1000;
+      showToast('⏳ Simulating missed check-in window...', 2000);
+      triggerMissedCheckinUI({ is_overdue: true });
     }
 
     function updateWalkMetricsUI() {
@@ -1437,20 +1922,20 @@
 
         if (res.ok) {
           const data = await res.json();
-          // Deviation evaluation
+          // Deviation evaluation from backend
           if (data.is_deviated) {
             showDeviationAlert(data.deviation_distance_meters || 160);
           } else {
             dismissDeviationAlert();
           }
 
-          // ETA delay evaluation
+          // ETA delay evaluation from backend
           if (data.is_eta_delayed) {
             showEtaDelayAlert();
           }
         }
       } catch (err) {
-        console.warn('[SafeRoute] Location update warning:', err.message);
+        console.warn('[Bella Go] Location update warning:', err.message);
       }
     }
 
@@ -1484,7 +1969,6 @@
       if (!isWalkActive || !walkSelectedRoute) return;
       const coords = walkSelectedRoute.coordinates;
       const curPt = coords[walkCurrentStepIndex] || coords[0];
-      // Push ~180-250m off route perpendicular
       const deviatedLat = curPt[0] + 0.0022;
       const deviatedLng = curPt[1] + 0.0025;
       if (walkUserMarker) walkUserMarker.setLatLng([deviatedLat, deviatedLng]);
@@ -1498,7 +1982,6 @@
       if (!isWalkActive) return;
       showToast('⏱️ Simulating walking delay (+12 min past ETA)...');
       const curPt = walkUserMarker ? walkUserMarker.getLatLng() : { lat: 28.6315, lng: 77.2167 };
-      // Passing large remaining minutes triggers is_eta_delayed
       sendLocationUpdate(curPt.lat, curPt.lng, (walkSelectedRoute.eta_minutes || 20) + 15);
     }
 
@@ -1556,22 +2039,43 @@
       showToast('🆘 DISCREET DISTRESS DISPATCHED — Trusted Contacts Alerted!');
     }
 
+    // ── Arrival / Journey Completed ──
     async function completeWalkSession() {
       isWalkActive = false;
       if (walkTimerInterval) clearInterval(walkTimerInterval);
+      if (statusPollingInterval) clearInterval(statusPollingInterval);
 
-      if (activeCheckinId) {
+      let arrivalConfirmed = false;
+      if (activeCheckinId && checkinEnabled) {
         try {
-          await fetch(`http://localhost:8000/api/v1/checkins/${activeCheckinId}/complete`, { method: 'POST' });
+          const res = await fetch(`http://localhost:8000/api/v1/checkins/${activeCheckinId}/complete`, { method: 'POST' });
+          if (res.ok) {
+            arrivalConfirmed = true;
+          }
         } catch (e) {}
       }
 
       const walkBar = document.getElementById('walk-session-bar');
       if (walkBar) walkBar.classList.add('hidden');
+      document.getElementById('safety-checkin-card')?.classList.add('hidden');
 
       if (walkUserMarker) {
         map.removeLayer(walkUserMarker);
         walkUserMarker = null;
+      }
+
+      // Exact prompt copy requirement:
+      // "Journey completed"
+      // "Your trusted contact can be notified that you've arrived safely."
+      // If the backend confirms the arrival notification, reflect that status.
+      if (checkinEnabled) {
+        if (arrivalConfirmed) {
+          showToast(`Journey completed · Your trusted contact (${selectedContactName}) has been notified that you've arrived safely.`, 5000);
+        } else {
+          showToast(`Journey completed · Your trusted contact can be notified that you've arrived safely.`, 4000);
+        }
+      } else {
+        showToast('Journey completed.', 3000);
       }
 
       // Open Post-Walk Feedback modal
@@ -1583,12 +2087,19 @@
     // =====================================================
     function openFeedbackModal() {
       const modal = document.getElementById('feedback-modal');
-      if (modal) modal.classList.remove('hidden');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+      modal.style.setProperty('display', 'flex', 'important');
+      modal.style.setProperty('opacity', '1', 'important');
+      modal.style.setProperty('pointer-events', 'auto', 'important');
+      modal.style.setProperty('transform', 'none', 'important');
     }
 
     function closeFeedbackModal() {
       const modal = document.getElementById('feedback-modal');
-      if (modal) modal.classList.add('hidden');
+      if (!modal) return;
+      modal.classList.add('hidden');
+      modal.style.setProperty('display', 'none', 'important');
     }
 
     function setRating(rating) {
@@ -1635,7 +2146,7 @@
             })
           });
         } catch (err) {
-          console.warn('[SafeRoute] Feedback submit warning:', err.message);
+          console.warn('[Bella Go] Feedback submit warning:', err.message);
         }
       }
 
@@ -1650,6 +2161,10 @@
       const modal = document.getElementById('privacy-modal');
       if (!modal) return;
       modal.classList.remove('hidden');
+      modal.style.setProperty('display', 'flex', 'important');
+      modal.style.setProperty('opacity', '1', 'important');
+      modal.style.setProperty('pointer-events', 'auto', 'important');
+      modal.style.setProperty('transform', 'none', 'important');
 
       const sIdEl = document.getElementById('privacy-session-id');
       if (sIdEl) sIdEl.textContent = activeCheckinId || 'None (Standby Mode)';
@@ -1671,7 +2186,9 @@
 
     function closePrivacyModal() {
       const modal = document.getElementById('privacy-modal');
-      if (modal) modal.classList.add('hidden');
+      if (!modal) return;
+      modal.classList.add('hidden');
+      modal.style.setProperty('display', 'none', 'important');
     }
 
     // =====================================================
@@ -1683,6 +2200,10 @@
       const modal = document.getElementById('whatif-modal');
       if (!modal) return;
       modal.classList.remove('hidden');
+      modal.style.setProperty('display', 'flex', 'important');
+      modal.style.setProperty('opacity', '1', 'important');
+      modal.style.setProperty('pointer-events', 'auto', 'important');
+      modal.style.setProperty('transform', 'none', 'important');
 
       const activeRoute = currentRoutes.find(r => r.id === selectedRouteId) || currentRoutes[0];
       const rNameEl = document.getElementById('whatif-route-name');
@@ -1696,7 +2217,9 @@
 
     function closeWhatIfModal() {
       const modal = document.getElementById('whatif-modal');
-      if (modal) modal.classList.add('hidden');
+      if (!modal) return;
+      modal.classList.add('hidden');
+      modal.style.setProperty('display', 'none', 'important');
     }
 
     async function runWhatIfComparison() {
@@ -1838,7 +2361,7 @@
             setupEscapeRoute(uLat, uLng);
           },
           err => {
-            console.warn('[SafeRoute] Geolocation fallback:', err.message);
+            console.warn('[Bella Go] Geolocation fallback:', err.message);
             setupEscapeRoute(uLat, uLng);
           },
           { timeout: 5000, enableHighAccuracy: true }
@@ -1986,7 +2509,7 @@
               })
             }).catch(() => null);
           },
-          err => console.warn('[SafeRoute] Watch warning:', err.message),
+          err => console.warn('[Bella Go] Watch warning:', err.message),
           { enableHighAccuracy: true, timeout: 10000, maximumAge: 3000 }
         );
       }
