@@ -1,5 +1,5 @@
 """
-SafeRoute Backend – Application entry point.
+bella go Backend – Application entry point.
 
 Run with:
     cd backend
@@ -34,9 +34,8 @@ app = FastAPI(
     title=config.get("app_name", "SafeRoute API"),
     version=config.get("version", "0.1.0"),
     description=(
-        "Backend API for the SafeRoute hackathon project.\n\n"
-        "Aggregates route and safety-score data into one clean API "
-        "that Track C (frontend / map UI) can consume directly.\n\n"
+        "Backend API for the bella go safety navigation app.\n\n"
+        "Go freely. Go confidently.\n\n"
         "**Phase 1** — mock route data, frozen API contract.\n\n"
         "**Phase 2** — check-in sessions, trusted contacts, safety alerts.\n\n"
         "**Phase 3** — live location updates, route deviation detection, ETA delay alerts.\n\n"

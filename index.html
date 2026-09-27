@@ -1,6 +1,6 @@
 <!--
   =============================================================================
-  SafeRoute — Safety-First Route Planner
+  bella go — Go freely. Go confidently.
   =============================================================================
   HOW TO RUN:
     1. Start the backend:  uvicorn main:app --port 8000  (SafeRoute/backend/)
@@ -14,9 +14,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>SafeRoute — Safety-First Route Planner</title>
+  <title>bella go — Go freely. Go confidently.</title>
   <meta name="description"
-    content="SafeRoute helps you find the safest pedestrian route, scored by lighting, crowd density, incident history and more." />
+    content="bella go helps you find the safest pedestrian route, scored by lighting, crowd density, incident history and more. Go freely. Go confidently." />
 
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -50,10 +50,8 @@
 
       <!-- Brand -->
       <header class="intake-brand">
-        <div class="brand-logo" aria-hidden="true">🛡️</div>
-        <div>
-          <h1 class="brand-name">SafeRoute</h1>
-          <p class="brand-tagline">Safety-first navigation</p>
+        <div class="brand-logo-img" aria-hidden="true">
+          <img src="bellago-logo.png" alt="bella go logo" style="height:90px;width:auto;object-fit:contain;" />
         </div>
       </header>
 
@@ -172,10 +170,8 @@
             <button class="back-btn" id="back-btn" onclick="goToIntake()" aria-label="Edit trip">
               ← Edit trip
             </button>
-            <div class="logo" aria-hidden="true">🛡️</div>
-            <div class="brand">
-              <p class="brand-name-sm">SafeRoute</p>
-              <p class="brand-tag-sm">Safety-first</p>
+            <div class="logo" aria-hidden="true">
+              <img src="bellago-logo.png" alt="bella go" style="height:36px;width:auto;object-fit:contain;vertical-align:middle;" />
             </div>
           </div>
 
