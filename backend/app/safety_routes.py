@@ -30,10 +30,12 @@ from app.safety_schemas import (
     FeedbackListResponse,
     LocationUpdate,
     LocationUpdateResponse,
+    ManualCheckInResponse,
     PrivacySessionResponse,
     RouteFeedbackSummary,
     TrustedContact,
     TrustedContactCreate,
+    TrustedContactListResponse,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["safety"])
@@ -63,6 +65,16 @@ async def create_contact(payload: TrustedContactCreate) -> TrustedContact:
 
 
 @router.get(
+    "/contacts",
+    response_model=TrustedContactListResponse,
+    summary="List all trusted contacts",
+)
+async def list_contacts() -> TrustedContactListResponse:
+    items = svc.list_contacts()
+    return TrustedContactListResponse(items=items, count=len(items))
+
+
+@router.get(
     "/contacts/{contact_id}",
     response_model=TrustedContact,
     summary="Get a trusted contact by ID",
@@ -77,6 +89,22 @@ async def get_contact(contact_id: str) -> TrustedContact:
         raise HTTPException(status_code=404,
                             detail=f"Contact '{contact_id}' not found")
     return contact
+
+
+@router.delete(
+    "/contacts/{contact_id}",
+    summary="Delete a trusted contact",
+    responses={
+        200: {"description": "Contact deleted"},
+        404: {"description": "Not found", "model": ErrorResponse},
+    },
+)
+async def delete_contact(contact_id: str):
+    success = svc.delete_contact(contact_id)
+    if not success:
+        raise HTTPException(status_code=404,
+                            detail=f"Contact '{contact_id}' not found")
+    return {"status": "deleted", "contact_id": contact_id}
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -147,6 +175,35 @@ async def get_checkin(checkin_id: str) -> CheckIn:
 async def complete_checkin(checkin_id: str) -> CheckIn:
     try:
         return svc.complete_checkin(checkin_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.post(
+    "/checkins/{checkin_id}/im-safe",
+    response_model=ManualCheckInResponse,
+    summary="Perform manual 'I'm Safe' check-in",
+    description=(
+        "Records that the user is safe during an active trip. "
+        "Advances next_checkin_due_at by interval_minutes, increments checkin_count, "
+        "and clears overdue state."
+    ),
+    responses={
+        200: {"description": "Manual check-in recorded"},
+        404: {"description": "Not found", "model": ErrorResponse},
+        409: {"description": "Session already completed or cancelled", "model": ErrorResponse},
+    },
+)
+@router.post(
+    "/checkins/{checkin_id}/safe-ping",
+    response_model=ManualCheckInResponse,
+    include_in_schema=False,
+)
+async def manual_im_safe_checkin(checkin_id: str) -> ManualCheckInResponse:
+    try:
+        return svc.record_manual_checkin(checkin_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except ValueError as exc:

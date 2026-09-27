@@ -7,8 +7,10 @@ provider directly.
 
 Responsibilities:
   - Trusted-contact CRUD
-  - Check-in lifecycle management
-  - Overdue detection
+  - Check-in lifecycle management (one-time & user-controlled periodic check-ins)
+  - Trip-start & trip-completion notifications
+  - Manual 'I'm Safe' check-in registration
+  - Overdue detection (periodic interval & final ETA)
   - Alert creation and notification dispatch
 """
 
@@ -37,6 +39,7 @@ from app.safety_schemas import (
     FeedbackListResponse,
     LocationUpdate,
     LocationUpdateResponse,
+    ManualCheckInResponse,
     PrivacySessionResponse,
     RouteFeedbackSummary,
     TrustedContact,
@@ -58,8 +61,6 @@ def _get_config() -> dict:
     except Exception:
         pass
     return {}
-
-
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -95,30 +96,88 @@ def list_contacts() -> List[TrustedContact]:
     return store.all_contacts()
 
 
+def delete_contact(contact_id: str) -> bool:
+    """Remove a trusted contact from the store."""
+    return store.delete_contact(contact_id)
+
+
 # ── Check-In service ─────────────────────────────────────────────────
 
 def create_checkin(payload: CheckInCreate) -> CheckIn:
     """
     Start a new active check-in session.
 
-    Raises ValueError if the referenced trusted contact does not exist.
+    Supports:
+      - Periodic check-ins (e.g. 30-min intervals) with backend calculation of next check-in time
+      - Optional trip-start notification to trusted contact with destination and ETA
+      - Sessions without trusted contact when check-ins are OFF
     """
-    if store.get_contact(payload.contact_id) is None:
-        raise ValueError(f"Trusted contact '{payload.contact_id}' not found")
+    contact = None
+    if payload.contact_id:
+        contact = store.get_contact(payload.contact_id)
+        if contact is None:
+            raise ValueError(f"Trusted contact '{payload.contact_id}' not found")
 
     now = _now()
+    duration = payload.duration_minutes or 30
+    expected_arrival = now + timedelta(minutes=duration)
+
+    is_periodic = bool(payload.periodic_checkin_enabled)
+    interval = payload.interval_minutes if (is_periodic and payload.interval_minutes) else (duration if is_periodic else None)
+
+    if is_periodic and interval:
+        next_due = now + timedelta(minutes=interval)
+        if next_due > expected_arrival:
+            next_due = expected_arrival
+    else:
+        next_due = expected_arrival
+
     checkin = CheckIn(
         checkin_id=_new_id(),
         user_id=payload.user_id,
         contact_id=payload.contact_id,
-        duration_minutes=payload.duration_minutes,
+        duration_minutes=duration,
         route_id=payload.route_id,
         status=CheckInStatus.ACTIVE,
         started_at=now,
-        expected_at=now + timedelta(minutes=payload.duration_minutes),
+        expected_at=expected_arrival,
         completed_at=None,
+        periodic_checkin_enabled=is_periodic,
+        interval_minutes=interval,
+        next_checkin_due_at=next_due,
+        last_checkin_at=now,
+        destination_name=payload.destination_name,
+        notify_on_start=bool(payload.notify_on_start),
+        notify_on_arrival=bool(payload.notify_on_arrival),
+        checkin_count=0,
     )
     store.save_checkin(checkin)
+
+    # Dispatch trip-start notification if requested and contact is registered
+    if payload.notify_on_start and contact:
+        dest_str = payload.destination_name or (f"Route {payload.route_id}" if payload.route_id else "Destination")
+        start_msg = (
+            f"Trip started.\n"
+            f"Destination: {dest_str}\n"
+            f"Estimated arrival: {expected_arrival.strftime('%H:%M UTC')}"
+        )
+        start_alert = Alert(
+            alert_id=_new_id(),
+            checkin_id=checkin.checkin_id,
+            alert_type=AlertType.TRIP_START,
+            alert_status=AlertStatus.PENDING,
+            trusted_contact=contact,
+            message=start_msg,
+            created_at=now,
+            sent_at=None,
+        )
+        deliv = dispatch_notification(contact, start_alert)
+        start_alert = start_alert.model_copy(update={
+            "alert_status": deliv,
+            "sent_at": _now() if deliv == AlertStatus.SENT else None,
+        })
+        store.save_alert(start_alert)
+
     return checkin
 
 
@@ -131,9 +190,63 @@ def list_checkins() -> List[CheckIn]:
     return store.all_checkins()
 
 
+def record_manual_checkin(checkin_id: str) -> ManualCheckInResponse:
+    """
+    Process an 'I'm Safe' manual check-in from the user.
+
+    1. Validates that the session is active or overdue.
+    2. Resets/clears overdue status back to ACTIVE.
+    3. Calculates the next scheduled check-in time if periodic check-ins are enabled.
+    4. Updates checkin_count and last_checkin_at.
+    """
+    checkin = store.get_checkin(checkin_id)
+    if checkin is None:
+        raise KeyError(f"Check-in '{checkin_id}' not found")
+    if checkin.status not in (CheckInStatus.ACTIVE, CheckInStatus.OVERDUE):
+        raise ValueError(
+            f"Cannot perform manual check-in with status '{checkin.status.value}'. "
+            "Session is already finished."
+        )
+
+    now = _now()
+    new_count = checkin.checkin_count + 1
+
+    if checkin.periodic_checkin_enabled and checkin.interval_minutes:
+        next_due = now + timedelta(minutes=checkin.interval_minutes)
+        if next_due > checkin.expected_at:
+            next_due = checkin.expected_at
+    else:
+        next_due = checkin.expected_at
+
+    updated = checkin.model_copy(update={
+        "status": CheckInStatus.ACTIVE,
+        "last_checkin_at": now,
+        "next_checkin_due_at": next_due,
+        "checkin_count": new_count,
+    })
+    store.save_checkin(updated)
+
+    seconds_remaining = max(0.0, (next_due - now).total_seconds()) if next_due else None
+
+    if checkin.periodic_checkin_enabled and checkin.interval_minutes:
+        msg = f"Check-in #{new_count} recorded. Next check-in scheduled for {next_due.strftime('%H:%M UTC')}."
+    else:
+        msg = f"Check-in recorded. Expected arrival by {checkin.expected_at.strftime('%H:%M UTC')}."
+
+    return ManualCheckInResponse(
+        checkin_id=checkin_id,
+        status=CheckInStatus.ACTIVE,
+        last_checkin_at=now,
+        next_checkin_due_at=next_due,
+        seconds_until_next_checkin=round(seconds_remaining, 1) if seconds_remaining is not None else None,
+        checkin_count=new_count,
+        message=msg,
+    )
+
+
 def complete_checkin(checkin_id: str) -> CheckIn:
     """
-    Mark a check-in as safely completed.
+    Mark a check-in as safely completed and optionally send an arrival notification.
 
     Raises:
         KeyError  – check-in not found
@@ -147,13 +260,42 @@ def complete_checkin(checkin_id: str) -> CheckIn:
             f"Cannot complete check-in with status '{checkin.status.value}'. "
             "Only ACTIVE or OVERDUE check-ins can be completed."
         )
-    # Pydantic models are immutable by default — use model_copy
+
+    now = _now()
     updated = checkin.model_copy(update={
         "status": CheckInStatus.COMPLETED,
-        "completed_at": _now(),
+        "completed_at": now,
+        "next_checkin_due_at": None,
     })
     store.save_checkin(updated)
     store.clear_active_deviation_alert_id(checkin_id)
+
+    # Dispatch arrival notification if requested
+    if checkin.notify_on_arrival and checkin.contact_id:
+        contact = store.get_contact(checkin.contact_id)
+        if contact:
+            dest_str = checkin.destination_name or (f"Route {checkin.route_id}" if checkin.route_id else "destination")
+            arrival_msg = (
+                f"Trip completed.\n"
+                f"Arrived at {dest_str}."
+            )
+            arrival_alert = Alert(
+                alert_id=_new_id(),
+                checkin_id=checkin.checkin_id,
+                alert_type=AlertType.TRIP_COMPLETED,
+                alert_status=AlertStatus.PENDING,
+                trusted_contact=contact,
+                message=arrival_msg,
+                created_at=now,
+                sent_at=None,
+            )
+            deliv = dispatch_notification(contact, arrival_alert)
+            arrival_alert = arrival_alert.model_copy(update={
+                "alert_status": deliv,
+                "sent_at": _now() if deliv == AlertStatus.SENT else None,
+            })
+            store.save_alert(arrival_alert)
+
     return updated
 
 
@@ -172,7 +314,10 @@ def cancel_checkin(checkin_id: str) -> CheckIn:
         raise ValueError(
             f"Cannot cancel check-in with status '{checkin.status.value}'."
         )
-    updated = checkin.model_copy(update={"status": CheckInStatus.CANCELLED})
+    updated = checkin.model_copy(update={
+        "status": CheckInStatus.CANCELLED,
+        "next_checkin_due_at": None,
+    })
     store.save_checkin(updated)
     store.clear_active_deviation_alert_id(checkin_id)
     return updated
@@ -180,7 +325,7 @@ def cancel_checkin(checkin_id: str) -> CheckIn:
 
 def get_checkin_status(checkin_id: str) -> CheckInStatusResponse:
     """
-    Evaluate whether a check-in is overdue.
+    Evaluate whether a check-in is overdue (checking both periodic interval and arrival ETA).
 
     Automatically transitions ACTIVE → OVERDUE in the store when the
     expected time has passed.
@@ -194,13 +339,29 @@ def get_checkin_status(checkin_id: str) -> CheckInStatusResponse:
 
     is_overdue = False
     current_status = checkin.status
+    now = _now()
 
-    if checkin.status == CheckInStatus.ACTIVE and _now() > checkin.expected_at:
-        # Transition to OVERDUE
-        updated = checkin.model_copy(update={"status": CheckInStatus.OVERDUE})
-        store.save_checkin(updated)
-        current_status = CheckInStatus.OVERDUE
+    if checkin.status == CheckInStatus.ACTIVE:
+        is_past_eta = now > checkin.expected_at
+        is_past_interval = bool(
+            checkin.periodic_checkin_enabled
+            and checkin.next_checkin_due_at
+            and now > checkin.next_checkin_due_at
+        )
+
+        if is_past_eta or is_past_interval:
+            # Transition to OVERDUE
+            updated = checkin.model_copy(update={"status": CheckInStatus.OVERDUE})
+            store.save_checkin(updated)
+            current_status = CheckInStatus.OVERDUE
+            is_overdue = True
+            checkin = updated
+    elif checkin.status == CheckInStatus.OVERDUE:
         is_overdue = True
+
+    seconds_remaining = None
+    if checkin.status == CheckInStatus.ACTIVE and checkin.next_checkin_due_at:
+        seconds_remaining = max(0.0, (checkin.next_checkin_due_at - now).total_seconds())
 
     messages = {
         CheckInStatus.ACTIVE:    "Check-in is active and within the expected time window.",
@@ -214,6 +375,9 @@ def get_checkin_status(checkin_id: str) -> CheckInStatusResponse:
         status=current_status,
         is_overdue=is_overdue,
         message=messages[current_status],
+        next_checkin_due_at=checkin.next_checkin_due_at,
+        seconds_until_next_checkin=round(seconds_remaining, 1) if seconds_remaining is not None else None,
+        periodic_checkin_enabled=checkin.periodic_checkin_enabled,
     )
 
 
@@ -239,14 +403,18 @@ def create_overdue_alert(checkin_id: str) -> Alert:
             "Alert not created."
         )
 
+    if not checkin.contact_id:
+        raise KeyError(f"No trusted contact registered for check-in '{checkin_id}'")
+
     contact = store.get_contact(checkin.contact_id)
     if contact is None:
         raise KeyError(f"Trusted contact '{checkin.contact_id}' not found")
 
     now = _now()
+    deadline = checkin.next_checkin_due_at or checkin.expected_at
     message = (
         f"SAFETY ALERT: {checkin.user_id} has not checked in. "
-        f"Expected by {checkin.expected_at.strftime('%H:%M UTC')}. "
+        f"Expected by {deadline.strftime('%H:%M UTC')}. "
         f"Please check on them."
     )
 
@@ -261,7 +429,7 @@ def create_overdue_alert(checkin_id: str) -> Alert:
         sent_at=None,
     )
 
-    # Dispatch to the (mock) notification provider
+    # Dispatch to notification provider
     delivery_status = dispatch_notification(contact, alert)
     alert = alert.model_copy(update={
         "alert_status": delivery_status,
@@ -285,23 +453,28 @@ def alerts_for_checkin(checkin_id: str) -> List[Alert]:
 
 
 # ── Batch overdue scan ────────────────────────────────────────────────
-# Foundation for a future periodic scheduler (Phase 3+)
 
 def scan_overdue_checkins() -> List[CheckIn]:
     """
     Evaluate all ACTIVE check-ins, transition overdue ones, return the list.
 
-    Called by the /checkins/overdue-scan endpoint.
-    Does NOT auto-fire alerts — that is an explicit action by the caller.
+    Evaluates both ETA and periodic interval deadlines.
     """
     now = _now()
     newly_overdue: List[CheckIn] = []
 
     for checkin in store.all_checkins():
-        if checkin.status == CheckInStatus.ACTIVE and now > checkin.expected_at:
-            updated = checkin.model_copy(update={"status": CheckInStatus.OVERDUE})
-            store.save_checkin(updated)
-            newly_overdue.append(updated)
+        if checkin.status == CheckInStatus.ACTIVE:
+            is_past_eta = now > checkin.expected_at
+            is_past_interval = bool(
+                checkin.periodic_checkin_enabled
+                and checkin.next_checkin_due_at
+                and now > checkin.next_checkin_due_at
+            )
+            if is_past_eta or is_past_interval:
+                updated = checkin.model_copy(update={"status": CheckInStatus.OVERDUE})
+                store.save_checkin(updated)
+                newly_overdue.append(updated)
 
     return newly_overdue
 
@@ -316,19 +489,6 @@ def process_location_update(
 ) -> LocationUpdateResponse:
     """
     Process a location and progress update for an active safety check-in.
-
-    1. Validates check-in existence and active lifecycle state.
-    2. Calculates shortest perpendicular distance to the assigned route polyline.
-    3. Evaluates if user position exceeds the deviation threshold.
-    4. Evaluates if progress or elapsed time indicates an ETA delay.
-    5. Deduplicates alerts: if an active deviation episode already has an alert,
-       avoids firing repeated alerts on every subsequent location ping.
-    6. Handles recovery: when user returns within threshold, clears the active
-       deviation state cleanly.
-
-    Raises:
-        KeyError: If check-in is not found.
-        ValueError: If check-in is not in an active or overdue state.
     """
     checkin = store.get_checkin(checkin_id)
     if checkin is None:
@@ -341,7 +501,6 @@ def process_location_update(
         )
 
     now = payload.timestamp if payload.timestamp is not None else _now()
-    # Ensure now is timezone-aware
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
 
@@ -352,95 +511,73 @@ def process_location_update(
     if checkin.route_id:
         route = get_route_by_id(checkin.route_id)
         if route and route.coordinates:
-            dist = min_distance_to_route(payload.lat, payload.lng, route.coordinates)
-            deviation_distance_meters = round(dist, 1)
-            if dist > deviation_threshold_meters:
+            deviation_distance_meters = min_distance_to_route(
+                payload.lat, payload.lng, route.coordinates
+            )
+            if deviation_distance_meters > deviation_threshold_meters:
                 is_deviated = True
-        else:
-            is_deviated = False
-            deviation_distance_meters = None
-    else:
-        is_deviated = False
-        deviation_distance_meters = None
 
     # 2. Evaluate ETA Delay
     is_eta_delayed = False
     if payload.estimated_remaining_minutes is not None:
-        projected_arrival = now + timedelta(minutes=payload.estimated_remaining_minutes)
-        delay_seconds = (projected_arrival - checkin.expected_at).total_seconds()
-        if delay_seconds > (eta_delay_threshold_minutes * 60.0):
-            is_eta_delayed = True
-    else:
-        # Check if elapsed time has exceeded expected_at + threshold
-        if now > (checkin.expected_at + timedelta(minutes=eta_delay_threshold_minutes)):
+        current_projected_arrival = now + timedelta(minutes=payload.estimated_remaining_minutes)
+        allowed_arrival_deadline = checkin.expected_at + timedelta(minutes=eta_delay_threshold_minutes)
+        if current_projected_arrival > allowed_arrival_deadline:
             is_eta_delayed = True
 
-    # 3. Alert Generation, Deduplication & Recovery Handling
+    # 3. Alert Triggering & Deduplication
     alert_triggered = False
     active_alert: Optional[Alert] = None
+    existing_alert_id = store.get_active_deviation_alert_id(checkin_id)
 
     if is_deviated or is_eta_delayed:
-        # Check if an active alert already exists for this ongoing episode
-        active_alert_id = store.get_active_deviation_alert_id(checkin_id)
-        if active_alert_id:
-            existing_alert = store.get_alert(active_alert_id)
-            if existing_alert:
-                active_alert = existing_alert
-                alert_triggered = False
-                msg_parts = []
-                if is_deviated:
-                    msg_parts.append(f"deviated ({deviation_distance_meters}m)")
-                if is_eta_delayed:
-                    msg_parts.append("ETA delayed")
-                message = f"Check-in is currently {' and '.join(msg_parts)}. Existing active alert ({active_alert_id}) retained."
-            else:
-                # Alert was somehow missing from store, generate fresh
-                active_alert = None
+        if existing_alert_id is None:
+            # Need to trigger new alert
+            if checkin.contact_id:
+                contact = store.get_contact(checkin.contact_id)
+                if contact:
+                    reasons = []
+                    if is_deviated and deviation_distance_meters is not None:
+                        reasons.append(f"deviated {deviation_distance_meters:.0f}m from planned route")
+                    if is_eta_delayed:
+                        reasons.append("significant arrival delay detected")
 
-        if active_alert is None:
-            # Create NEW deviation/ETA alert
-            contact = store.get_contact(checkin.contact_id)
-            if contact is None:
-                raise KeyError(f"Trusted contact '{checkin.contact_id}' not found")
+                    msg = (
+                        f"SAFETY ALERT: {checkin.user_id} may need assistance ({', '.join(reasons)}). "
+                        f"Current position: ({payload.lat:.4f}, {payload.lng:.4f})."
+                    )
 
-            reasons = []
-            if is_deviated:
-                reasons.append(f"deviated from route by {deviation_distance_meters:.0f}m")
-            if is_eta_delayed:
-                reasons.append(f"delayed past expected ETA ({checkin.expected_at.strftime('%H:%M UTC')})")
-            reason_str = " and ".join(reasons)
-            alert_msg = (
-                f"SAFETY ALERT: {checkin.user_id} has {reason_str}. "
-                f"Last location: ({payload.lat:.4f}, {payload.lng:.4f})."
-            )
-
-            new_alert = Alert(
-                alert_id=_new_id(),
-                checkin_id=checkin_id,
-                alert_type=AlertType.ETA_DEVIATION,
-                alert_status=AlertStatus.PENDING,
-                trusted_contact=contact,
-                message=alert_msg,
-                created_at=_now(),
-                sent_at=None,
-            )
-
-            delivery_status = dispatch_notification(contact, new_alert)
-            new_alert = new_alert.model_copy(update={
-                "alert_status": delivery_status,
-                "sent_at": _now() if delivery_status == AlertStatus.SENT else None,
-            })
-            store.save_alert(new_alert)
-            store.set_active_deviation_alert_id(checkin_id, new_alert.alert_id)
-            active_alert = new_alert
-            alert_triggered = True
-            message = f"New safety alert triggered and notification dispatched: {alert_msg}"
+                    new_alert = Alert(
+                        alert_id=_new_id(),
+                        checkin_id=checkin_id,
+                        alert_type=AlertType.ETA_DEVIATION,
+                        alert_status=AlertStatus.PENDING,
+                        trusted_contact=contact,
+                        message=msg,
+                        created_at=now,
+                        sent_at=None,
+                    )
+                    deliv = dispatch_notification(contact, new_alert)
+                    new_alert = new_alert.model_copy(update={
+                        "alert_status": deliv,
+                        "sent_at": _now() if deliv == AlertStatus.SENT else None,
+                    })
+                    store.save_alert(new_alert)
+                    store.set_active_deviation_alert_id(checkin_id, new_alert.alert_id)
+                    active_alert = new_alert
+                    alert_triggered = True
+        else:
+            active_alert = store.get_alert(existing_alert_id)
     else:
-        # Normal or Recovered: user is within tolerance and on schedule
-        store.clear_active_deviation_alert_id(checkin_id)
-        alert_triggered = False
-        active_alert = None
-        message = "Location update normal: User is on expected route and within ETA window."
+        if existing_alert_id is not None:
+            store.clear_active_deviation_alert_id(checkin_id)
+
+    if is_deviated:
+        message = f"Route deviation detected ({deviation_distance_meters:.0f}m from path)."
+    elif is_eta_delayed:
+        message = "ETA delay detected past tolerance threshold."
+    else:
+        message = "Location update processed normally. On route."
 
     return LocationUpdateResponse(
         checkin_id=checkin_id,
@@ -457,16 +594,7 @@ def process_location_update(
 # ── Phase 4: Post-Walk Feedback & Scoring Pipeline ───────────────────
 
 def submit_feedback(checkin_id: str, payload: FeedbackCreate) -> Feedback:
-    """
-    Record post-walk 1-tap feedback for a safely completed check-in.
-
-    Validates that the check-in exists and has completed, prevents duplicate
-    feedback for the same session, and associates feedback with the route.
-
-    Raises:
-        KeyError: If check-in is not found.
-        ValueError: If check-in is not completed or feedback was already submitted.
-    """
+    """Record post-walk 1-tap feedback for a safely completed check-in."""
     checkin = store.get_checkin(checkin_id)
     if checkin is None:
         raise KeyError(f"Check-in '{checkin_id}' not found")
@@ -495,23 +623,14 @@ def submit_feedback(checkin_id: str, payload: FeedbackCreate) -> Feedback:
 
 
 def get_feedback_by_checkin(checkin_id: str) -> Optional[Feedback]:
-    """Retrieve feedback submitted for a specific check-in session."""
     return store.get_feedback_by_checkin(checkin_id)
 
 
 def list_all_feedbacks() -> List[Feedback]:
-    """List all recorded post-walk feedbacks."""
     return store.all_feedbacks()
 
 
 def get_route_feedback_summary(route_id: str) -> RouteFeedbackSummary:
-    """
-    Aggregate post-walk feedback signals for a specific route.
-
-    Exposes structured scoring signals (average rating, tag frequencies,
-    recent feedback records) that Track A (ML / scoring model) can consume
-    directly for route score retraining and calibration.
-    """
     feedbacks = store.feedbacks_for_route(route_id)
     total = len(feedbacks)
     avg_rating = round(sum(f.rating for f in feedbacks) / total, 2) if total > 0 else 0.0
@@ -535,15 +654,6 @@ def get_route_feedback_summary(route_id: str) -> RouteFeedbackSummary:
 # ── Phase 4: Privacy & Location Session Lifecycle ────────────────────
 
 def get_privacy_session_status(checkin_id: str) -> PrivacySessionResponse:
-    """
-    Evaluate privacy and location-sharing status for a safety session.
-
-    Guarantees that location sharing is only active while the user is in transit
-    (ACTIVE or OVERDUE) and automatically ceases upon completion or cancellation.
-
-    Raises:
-        KeyError: If check-in is not found.
-    """
     checkin = store.get_checkin(checkin_id)
     if checkin is None:
         raise KeyError(f"Check-in '{checkin_id}' not found")
@@ -568,16 +678,9 @@ def get_privacy_session_status(checkin_id: str) -> PrivacySessionResponse:
 # ── Phase 5: Demo State Management ───────────────────────────────────
 
 def reset_demo_state() -> DemoResetResponse:
-    """
-    Reset all dynamic in-memory store states and re-seed default demo contacts.
-    Returns status and the default demo contact ID.
-    """
     store.reset_store()
     return DemoResetResponse(
         status="ok",
         message="Demo state has been reset and seeded with default demo contact.",
         demo_contact_id=store.DEFAULT_DEMO_CONTACT_ID,
     )
-
-
-

@@ -1,16 +1,12 @@
 """
 SafeRoute Backend – Phase 2 Safety Schemas.
 
-Defines the frozen API contracts for:
+Defines the API contracts for:
   - TrustedContact
-  - CheckIn session
-  - Alert
-
-⚠  These are the contracts Track D builds against.
-   ANY change is a breaking change — coordinate across tracks.
-
-Phase 1 schemas (RouteObject, etc.) live in app/schemas.py and are
-NOT modified here.
+  - CheckIn session (one-time & user-controlled periodic check-ins)
+  - Alert & Safety Notifications
+  - Location Updates & Deviation
+  - Feedback & Privacy Lifecycle
 """
 
 from __future__ import annotations
@@ -34,10 +30,12 @@ class CheckInStatus(str, Enum):
 
 
 class AlertType(str, Enum):
-    """Types of safety alerts the backend can generate."""
+    """Types of safety alerts and notifications the backend can generate."""
     CHECKIN_OVERDUE = "checkin_overdue"
-    ETA_DEVIATION   = "eta_deviation"   # foundation for Phase 3 deviation detection
-    DISTRESS        = "distress"        # Phase 5/Track A distress panic alert
+    ETA_DEVIATION   = "eta_deviation"
+    DISTRESS        = "distress"
+    TRIP_START      = "trip_start"
+    TRIP_COMPLETED  = "trip_completed"
 
 
 class AlertStatus(str, Enum):
@@ -56,9 +54,7 @@ class TrustedContactCreate(BaseModel):
     contact_method: str = Field(
         ..., min_length=1, max_length=200,
         description=(
-            "Destination for notifications. "
-            "Currently a free-form string (phone number, email address, "
-            "WhatsApp handle, etc.). "
+            "Destination for notifications (phone number, email address, WhatsApp handle, etc.). "
             "The notification provider interprets this field."
         ),
         examples=["+91-9876543210", "friend@example.com"],
@@ -82,63 +78,109 @@ class CheckInCreate(BaseModel):
         description="Opaque user or session identifier (no auth required)",
         examples=["user-abc-123"],
     )
-    contact_id: str = Field(
-        ..., min_length=1,
-        description="ID of a previously registered TrustedContact",
+    contact_id: Optional[str] = Field(
+        None,
+        description="ID of a previously registered TrustedContact (optional if check-ins are OFF)",
     )
-    duration_minutes: int = Field(
-        ..., ge=1, le=1440,
+    duration_minutes: Optional[int] = Field(
+        30, ge=1, le=1440,
         description="Expected walk duration in minutes (1 – 1440)",
-        examples=[20],
+        examples=[30],
     )
     route_id: Optional[str] = Field(
         None,
         description="Optional route_id from Phase 1 — links check-in to a specific route",
     )
+    # User-controlled periodic check-in options
+    periodic_checkin_enabled: Optional[bool] = Field(
+        False,
+        description="Whether recurring periodic check-in prompts are active (e.g. every 30 minutes)",
+    )
+    interval_minutes: Optional[int] = Field(
+        30, ge=1, le=1440,
+        description="Interval in minutes between periodic check-ins (e.g. 30)",
+    )
+    destination_name: Optional[str] = Field(
+        None, max_length=200,
+        description="Destination name for trip-start / arrival notification copy (e.g. 'Lajpat Nagar')",
+    )
+    notify_on_start: Optional[bool] = Field(
+        False,
+        description="Whether to dispatch a trip-start notification with destination and ETA to trusted contact",
+    )
+    notify_on_arrival: Optional[bool] = Field(
+        False,
+        description="Whether to dispatch an arrival notification to trusted contact upon trip completion",
+    )
 
 
 class CheckIn(BaseModel):
     """A check-in session (returned by the API)."""
-    checkin_id:       str            = Field(..., description="Unique check-in identifier (UUID)")
-    user_id:          str            = Field(..., description="User/session identifier")
-    contact_id:       str            = Field(..., description="Linked trusted contact ID")
-    duration_minutes: int            = Field(..., description="Expected walk duration in minutes")
-    route_id:         Optional[str]  = Field(None, description="Linked route ID, if any")
-    status:           CheckInStatus  = Field(..., description="Current lifecycle state")
-    started_at:       datetime       = Field(..., description="UTC start time")
-    expected_at:      datetime       = Field(..., description="UTC expected completion time")
-    completed_at:     Optional[datetime] = Field(None, description="UTC completion time, if done")
+    checkin_id:               str                = Field(..., description="Unique check-in identifier (UUID)")
+    user_id:                  str                = Field(..., description="User/session identifier")
+    contact_id:               Optional[str]      = Field(None, description="Linked trusted contact ID")
+    duration_minutes:         int                = Field(..., description="Expected walk duration in minutes")
+    route_id:                 Optional[str]      = Field(None, description="Linked route ID, if any")
+    status:                   CheckInStatus      = Field(..., description="Current lifecycle state")
+    started_at:               datetime           = Field(..., description="UTC start time")
+    expected_at:              datetime           = Field(..., description="UTC expected completion time")
+    completed_at:             Optional[datetime] = Field(None, description="UTC completion time, if done")
+    # Periodic check-in and notification metadata
+    periodic_checkin_enabled: bool               = Field(False, description="Whether periodic check-ins are active")
+    interval_minutes:         Optional[int]      = Field(None, description="Recurring check-in interval in minutes")
+    next_checkin_due_at:      Optional[datetime] = Field(None, description="UTC timestamp when next 'I'm Safe' check-in is expected")
+    last_checkin_at:          Optional[datetime] = Field(None, description="UTC timestamp of the most recent 'I'm Safe' check-in")
+    destination_name:         Optional[str]      = Field(None, description="Destination name for notifications")
+    notify_on_start:          bool               = Field(False, description="Trip-start notification preference")
+    notify_on_arrival:        bool               = Field(False, description="Trip-completion notification preference")
+    checkin_count:            int                = Field(0, description="Total number of safe check-ins completed in this session")
 
 
 class CheckInStatusResponse(BaseModel):
     """Overdue-check response (also embeds the current check-in state)."""
-    checkin_id: str           = Field(..., description="The check-in ID queried")
-    status:     CheckInStatus = Field(..., description="Current status")
-    is_overdue: bool          = Field(..., description="True when now > expected_at and still active")
-    message:    str           = Field(..., description="Human-readable status summary")
+    checkin_id:                  str                = Field(..., description="The check-in ID queried")
+    status:                      CheckInStatus      = Field(..., description="Current status")
+    is_overdue:                  bool               = Field(..., description="True when now > expected_at or now > next_checkin_due_at and still active")
+    message:                     str                = Field(..., description="Human-readable status summary")
+    next_checkin_due_at:         Optional[datetime] = Field(None, description="UTC timestamp when next check-in is due")
+    seconds_until_next_checkin:  Optional[float]    = Field(None, description="Seconds remaining until next check-in is due")
+    periodic_checkin_enabled:    bool               = Field(False, description="Whether periodic check-ins are active")
+
+
+class ManualCheckInResponse(BaseModel):
+    """Response returned when user registers an 'I'm Safe' check-in."""
+    checkin_id:                  str                = Field(..., description="Check-in session identifier")
+    status:                      CheckInStatus      = Field(..., description="Current status (e.g. active)")
+    last_checkin_at:             datetime           = Field(..., description="UTC timestamp of recorded check-in")
+    next_checkin_due_at:         Optional[datetime] = Field(None, description="UTC timestamp when the next check-in is expected")
+    seconds_until_next_checkin:  Optional[float]    = Field(None, description="Seconds remaining until next check-in")
+    checkin_count:               int                = Field(..., description="Total check-ins completed in this session")
+    message:                     str                = Field(..., description="Confirmation feedback message")
 
 
 # ── Alert ────────────────────────────────────────────────────────────
 
 class Alert(BaseModel):
-    """A safety alert record.
-
-    Created when the system detects an overdue check-in or other trigger.
-    The notification layer (mock or real) consumes this object.
-    """
-    alert_id:        str         = Field(..., description="Unique alert identifier (UUID)")
-    checkin_id:      str         = Field(..., description="Associated check-in ID")
-    alert_type:      AlertType   = Field(..., description="Category of the alert")
-    alert_status:    AlertStatus = Field(..., description="Notification delivery status")
-    trusted_contact: TrustedContact = Field(..., description="Contact that was notified")
-    message:         str         = Field(..., description="Human-readable alert message")
-    created_at:      datetime    = Field(..., description="UTC timestamp when alert was created")
+    """A safety alert record."""
+    alert_id:        str             = Field(..., description="Unique alert identifier (UUID)")
+    checkin_id:      str             = Field(..., description="Associated check-in ID")
+    alert_type:      AlertType       = Field(..., description="Category of the alert")
+    alert_status:    AlertStatus     = Field(..., description="Notification delivery status")
+    trusted_contact: TrustedContact  = Field(..., description="Contact that was notified")
+    message:         str             = Field(..., description="Human-readable alert message")
+    created_at:      datetime        = Field(..., description="UTC timestamp when alert was created")
     sent_at:         Optional[datetime] = Field(
         None, description="UTC timestamp when notification was dispatched (mock or real)"
     )
 
 
 # ── Convenience list wrappers ────────────────────────────────────────
+
+class TrustedContactListResponse(BaseModel):
+    """Response for listing trusted contacts."""
+    items: List[TrustedContact]
+    count: int
+
 
 class CheckInListResponse(BaseModel):
     """Response for listing check-ins."""
@@ -277,7 +319,3 @@ class DemoResetResponse(BaseModel):
     status: str = Field("ok", description="Operation status")
     message: str = Field(..., description="Human-readable status summary")
     demo_contact_id: str = Field(..., description="Default seeded demo trusted contact ID")
-
-
-
-

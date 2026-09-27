@@ -88,36 +88,40 @@ def test_1_track_a_import():
     assert "safe_islands" in results[0]
 
 
-import tempfile
-
 def test_2_incident_storage_sqlite():
     """Test 2 — SQLite incident store correctly persists and shapes reports."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        test_db = str(Path(tmpdir) / "test_incidents.db")
-        incident_store.init_db(test_db)
+    test_db = str(Path(f"test_incidents_{os.getpid()}.db"))
+    incident_store.init_db(test_db)
 
-        # Insert incident
-        record = incident_store.create_incident(
-            lat=28.6139,
-            lon=77.2090,
-            severity=0.8,
-            description="Dark alley near gate",
-            db_path=test_db,
-        )
-        assert record["id"].startswith("incident_")
-        assert record["lat"] == 28.6139
-        assert record["lon"] == 77.2090
-        assert record["severity"] == 0.8
-        assert record["description"] == "Dark alley near gate"
+    # Insert incident
+    record = incident_store.create_incident(
+        lat=28.6139,
+        lon=77.2090,
+        severity=0.8,
+        description="Dark alley near gate",
+        db_path=test_db,
+    )
+    assert record["id"].startswith("incident_")
+    assert record["lat"] == 28.6139
+    assert record["lon"] == 77.2090
+    assert record["severity"] == 0.8
+    assert record["description"] == "Dark alley near gate"
 
-        # Query for scoring
-        reports = incident_store.get_reports_for_scoring(db_path=test_db)
-        assert len(reports) >= 1
-        latest = reports[-1]
-        assert "lat" in latest
-        assert "lon" in latest
-        assert "severity" in latest
-        assert "timestamp" in latest
+    # Query for scoring
+    reports = incident_store.get_reports_for_scoring(db_path=test_db)
+    assert len(reports) >= 1
+    latest = reports[-1]
+    assert "lat" in latest
+    assert "lon" in latest
+    assert "severity" in latest
+    assert "timestamp" in latest
+
+    # Clean up test db if accessible
+    try:
+        if os.path.exists(test_db):
+            os.remove(test_db)
+    except Exception:
+        pass
 
 
 @patch("app.osrm_client.fetch_candidate_routes")
@@ -416,6 +420,177 @@ def test_12_get_routes_persona_and_hour_query_params():
     assert client.get("/api/v1/routes?hour=abc").status_code == 422
 
 
+def test_13_trusted_contact_and_periodic_checkin_lifecycle():
+    """
+    Test 13 — Complete Track B safety check-in & trusted contact workflow:
+      - Trusted contact management (create, list, get, delete)
+      - Start trip with check-ins OFF (normal navigation, optional)
+      - Start trip with check-ins ON (30-min interval, start notification with ETA)
+      - Backend calculation of next_checkin_due_at
+      - Manual "I'm Safe" check-in advancing interval & clearing overdue
+      - Overdue detection & alert generation for correct contact
+      - Trip completion with arrival notification & clearing future overdue alerts
+    """
+    from datetime import datetime, timedelta, timezone
+    safety_store.reset_store()
+
+    # 1. Manage trusted contacts
+    # Create contact
+    c_resp = client.post(
+        "/api/v1/contacts",
+        json={"name": "Mom", "contact_method": "+91-9876543210"},
+    )
+    assert c_resp.status_code == 201
+    contact = c_resp.json()
+    contact_id = contact["contact_id"]
+    assert contact["name"] == "Mom"
+    assert contact["contact_method"] == "+91-9876543210"
+
+    # List contacts
+    list_resp = client.get("/api/v1/contacts")
+    assert list_resp.status_code == 200
+    assert list_resp.json()["count"] >= 1
+    assert any(c["contact_id"] == contact_id for c in list_resp.json()["items"])
+
+    # Get contact by ID
+    get_resp = client.get(f"/api/v1/contacts/{contact_id}")
+    assert get_resp.status_code == 200
+    assert get_resp.json()["contact_id"] == contact_id
+
+    # 2. Start trip with check-ins OFF (normal navigation, no contact required)
+    off_resp = client.post(
+        "/api/v1/checkins",
+        json={
+            "user_id": "user-commuter-1",
+            "duration_minutes": 20,
+            "periodic_checkin_enabled": False,
+        },
+    )
+    assert off_resp.status_code == 201
+    off_data = off_resp.json()
+    assert off_data["status"] == "active"
+    assert off_data["periodic_checkin_enabled"] is False
+    assert off_data["interval_minutes"] is None
+    assert off_data["contact_id"] is None
+
+    # Complete OFF trip
+    comp_off = client.post(f"/api/v1/checkins/{off_data['checkin_id']}/complete")
+    assert comp_off.status_code == 200
+    assert comp_off.json()["status"] == "completed"
+
+    # 3. Start trip with check-ins ON (30-minute interval, notifications enabled)
+    on_resp = client.post(
+        "/api/v1/checkins",
+        json={
+            "user_id": "user-safety-hero",
+            "contact_id": contact_id,
+            "duration_minutes": 60,
+            "route_id": "route-001",
+            "destination_name": "Connaught Place Central",
+            "periodic_checkin_enabled": True,
+            "interval_minutes": 30,
+            "notify_on_start": True,
+            "notify_on_arrival": True,
+        },
+    )
+    assert on_resp.status_code == 201
+    on_data = on_resp.json()
+    checkin_id = on_data["checkin_id"]
+    assert on_data["status"] == "active"
+    assert on_data["periodic_checkin_enabled"] is True
+    assert on_data["interval_minutes"] == 30
+    assert on_data["next_checkin_due_at"] is not None
+    assert on_data["checkin_count"] == 0
+
+    # 4. Verify Trip-Start Notification
+    alerts_resp = client.get(f"/api/v1/checkins/{checkin_id}/alerts")
+    assert alerts_resp.status_code == 200
+    alerts = alerts_resp.json()["items"]
+    assert len(alerts) == 1
+    start_alert = alerts[0]
+    assert start_alert["alert_type"] == "trip_start"
+    assert "Trip started." in start_alert["message"]
+    assert "Destination: Connaught Place Central" in start_alert["message"]
+    assert "Estimated arrival:" in start_alert["message"]
+    assert start_alert["trusted_contact"]["contact_id"] == contact_id
+
+    # 5. Check status endpoint (backend is source of truth for next checkin time)
+    status_resp = client.get(f"/api/v1/checkins/{checkin_id}/status")
+    assert status_resp.status_code == 200
+    s_data = status_resp.json()
+    assert s_data["is_overdue"] is False
+    assert s_data["status"] == "active"
+    assert s_data["next_checkin_due_at"] is not None
+    assert s_data["seconds_until_next_checkin"] is not None
+    assert s_data["seconds_until_next_checkin"] > 0
+
+    # 6. Manual Check-in ("I'm Safe")
+    im_safe_resp = client.post(f"/api/v1/checkins/{checkin_id}/im-safe")
+    assert im_safe_resp.status_code == 200
+    safe_data = im_safe_resp.json()
+    assert safe_data["status"] == "active"
+    assert safe_data["checkin_count"] == 1
+    assert "Check-in #1 recorded" in safe_data["message"]
+    assert safe_data["next_checkin_due_at"] is not None
+
+    # 7. Missed / Overdue check-in simulation
+    # Simulate time passing beyond next_checkin_due_at
+    chk_obj = safety_store.get_checkin(checkin_id)
+    assert chk_obj is not None
+    past_time = datetime.now(timezone.utc) - timedelta(minutes=5)
+    overdue_chk = chk_obj.model_copy(update={"next_checkin_due_at": past_time})
+    safety_store.save_checkin(overdue_chk)
+
+    # Calling status evaluates and detects overdue
+    status_resp2 = client.get(f"/api/v1/checkins/{checkin_id}/status")
+    assert status_resp2.status_code == 200
+    assert status_resp2.json()["is_overdue"] is True
+    assert status_resp2.json()["status"] == "overdue"
+
+    # Trigger overdue alert
+    alert_resp = client.post(f"/api/v1/checkins/{checkin_id}/alert")
+    assert alert_resp.status_code == 201
+    overdue_alert = alert_resp.json()
+    assert overdue_alert["alert_type"] == "checkin_overdue"
+    assert "SAFETY ALERT" in overdue_alert["message"]
+    assert overdue_alert["trusted_contact"]["contact_id"] == contact_id
+
+    # User presses "I'm Safe" after being overdue -> returns to ACTIVE and advances next checkin
+    safe_recovery = client.post(f"/api/v1/checkins/{checkin_id}/im-safe")
+    assert safe_recovery.status_code == 200
+    assert safe_recovery.json()["status"] == "active"
+    assert safe_recovery.json()["checkin_count"] == 2
+
+    # Status is active again
+    status_resp3 = client.get(f"/api/v1/checkins/{checkin_id}/status")
+    assert status_resp3.json()["is_overdue"] is False
+    assert status_resp3.json()["status"] == "active"
+
+    # 8. Complete trip and check Arrival Notification
+    comp_resp = client.post(f"/api/v1/checkins/{checkin_id}/complete")
+    assert comp_resp.status_code == 200
+    assert comp_resp.json()["status"] == "completed"
+
+    # Verify arrival notification
+    alerts_after_comp = client.get(f"/api/v1/checkins/{checkin_id}/alerts").json()["items"]
+    arrival_alerts = [a for a in alerts_after_comp if a["alert_type"] == "trip_completed"]
+    assert len(arrival_alerts) == 1
+    arr_alert = arrival_alerts[0]
+    assert "Trip completed." in arr_alert["message"]
+    assert "Arrived at Connaught Place Central." in arr_alert["message"]
+
+    # Verify completion stops future overdue detection
+    status_final = client.get(f"/api/v1/checkins/{checkin_id}/status").json()
+    assert status_final["status"] == "completed"
+    assert status_final["is_overdue"] is False
+
+    # 9. Delete trusted contact
+    del_resp = client.delete(f"/api/v1/contacts/{contact_id}")
+    assert del_resp.status_code == 200
+    assert del_resp.json()["status"] == "deleted"
+    assert client.get(f"/api/v1/contacts/{contact_id}").status_code == 404
+
+
 if __name__ == "__main__":
     print("Running integration tests...")
     test_1_track_a_import()
@@ -440,6 +615,8 @@ if __name__ == "__main__":
     print("[PASS] Test 11: Escape Mode live GPS tracking")
     test_12_get_routes_persona_and_hour_query_params()
     print("[PASS] Test 12: GET /api/v1/routes?persona=<persona>&hour=<hour> Track A integration & validation")
+    test_13_trusted_contact_and_periodic_checkin_lifecycle()
+    print("[PASS] Test 13: Track B Trusted Contact & Periodic Check-in integration")
     print("\n==========================================")
-    print("ALL 12/12 INTEGRATION TESTS PASSED (0 FAILED)")
+    print("ALL 13/13 INTEGRATION TESTS PASSED (0 FAILED)")
     print("==========================================")

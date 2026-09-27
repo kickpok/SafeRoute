@@ -61,6 +61,11 @@ def all_contacts() -> list[TrustedContact]:
     return list(_contacts.values())
 
 
+def delete_contact(contact_id: str) -> bool:
+    """Remove a trusted contact from the store. Returns True if removed, False if not found."""
+    return _contacts.pop(contact_id, None) is not None
+
+
 # ── Check-In store ───────────────────────────────────────────────────
 
 def save_checkin(checkin: CheckIn) -> None:
