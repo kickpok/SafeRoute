@@ -155,6 +155,8 @@ def score_routes(
     )
 
 
+import datetime
+
 def score_single_route(
     features: Dict[str, float],
     persona: str = "default",
@@ -165,12 +167,12 @@ def score_single_route(
 
     features: Dict containing normalized 0-1 values for lighting, crowd, business, transit, incident, isolation
     persona: "default", "solo_night", "with_kids", or "late_shift"
-    hour: Integer hour (0-23, defaults to 12)
+    hour: Integer hour (0-23, defaults to current server hour)
 
     Returns: Track A score dict with "score", "persona", "hour", "breakdown"
     """
     if not is_track_a_available() or _score_route_fn is None:
         raise RuntimeError("Track A scoring engine is not available.")
 
-    applied_hour = hour if hour is not None else 12
+    applied_hour = hour if hour is not None else datetime.datetime.now().hour
     return _score_route_fn(features=features, persona=persona, hour=applied_hour)

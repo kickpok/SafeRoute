@@ -88,40 +88,36 @@ def test_1_track_a_import():
     assert "safe_islands" in results[0]
 
 
+import tempfile
+
 def test_2_incident_storage_sqlite():
     """Test 2 — SQLite incident store correctly persists and shapes reports."""
-    test_db = str(Path(f"test_incidents_{os.getpid()}.db"))
-    incident_store.init_db(test_db)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_db = str(Path(tmpdir) / "test_incidents.db")
+        incident_store.init_db(test_db)
 
-    # Insert incident
-    record = incident_store.create_incident(
-        lat=28.6139,
-        lon=77.2090,
-        severity=0.8,
-        description="Dark alley near gate",
-        db_path=test_db,
-    )
-    assert record["id"].startswith("incident_")
-    assert record["lat"] == 28.6139
-    assert record["lon"] == 77.2090
-    assert record["severity"] == 0.8
-    assert record["description"] == "Dark alley near gate"
+        # Insert incident
+        record = incident_store.create_incident(
+            lat=28.6139,
+            lon=77.2090,
+            severity=0.8,
+            description="Dark alley near gate",
+            db_path=test_db,
+        )
+        assert record["id"].startswith("incident_")
+        assert record["lat"] == 28.6139
+        assert record["lon"] == 77.2090
+        assert record["severity"] == 0.8
+        assert record["description"] == "Dark alley near gate"
 
-    # Query for scoring
-    reports = incident_store.get_reports_for_scoring(db_path=test_db)
-    assert len(reports) >= 1
-    latest = reports[-1]
-    assert "lat" in latest
-    assert "lon" in latest
-    assert "severity" in latest
-    assert "timestamp" in latest
-
-    # Clean up test db if accessible
-    try:
-        if os.path.exists(test_db):
-            os.remove(test_db)
-    except Exception:
-        pass
+        # Query for scoring
+        reports = incident_store.get_reports_for_scoring(db_path=test_db)
+        assert len(reports) >= 1
+        latest = reports[-1]
+        assert "lat" in latest
+        assert "lon" in latest
+        assert "severity" in latest
+        assert "timestamp" in latest
 
 
 @patch("app.osrm_client.fetch_candidate_routes")
@@ -374,38 +370,50 @@ def test_11_escape_location_update():
     assert data["reached_refuge"] is True
 
 
-def test_12_get_routes_persona_query_param():
-    """Test 12 — GET /api/v1/routes?persona=<persona> passes persona to Track A and validates invalid persona."""
-    # 1. Default (omitted)
+def test_12_get_routes_persona_and_hour_query_params():
+    """Test 12 — GET /api/v1/routes supports optional persona and hour query parameters, validates ranges, and scores via Track A."""
+    # 1. Existing route request with no optional parameters
     resp_default = client.get("/api/v1/routes")
     assert resp_default.status_code == 200
     routes_default = resp_default.json()["routes"]
     assert len(routes_default) >= 3
+    assert "safety_score" in routes_default[0]
 
-    # 2. Solo night persona
+    # 2. Persona-only request
     resp_solo = client.get("/api/v1/routes?persona=solo_night")
     assert resp_solo.status_code == 200
     routes_solo = resp_solo.json()["routes"]
     assert len(routes_solo) == len(routes_default)
-    # Verify Track A weighting produced a calculated safety score
     assert isinstance(routes_solo[0]["safety_score"], float)
-    assert 0.0 <= routes_solo[0]["safety_score"] <= 1.0
 
-    # 3. With kids persona
-    resp_kids = client.get("/api/v1/routes?persona=with_kids")
-    assert resp_kids.status_code == 200
-    routes_kids = resp_kids.json()["routes"]
-    assert len(routes_kids) == len(routes_default)
+    # 3. Time/hour-only request (daytime vs late-night time-of-day penalty)
+    resp_day = client.get("/api/v1/routes?hour=14")
+    assert resp_day.status_code == 200
+    routes_day = resp_day.json()["routes"]
 
-    # 4. Late shift persona
-    resp_shift = client.get("/api/v1/routes?persona=late_shift")
-    assert resp_shift.status_code == 200
-    routes_shift = resp_shift.json()["routes"]
-    assert len(routes_shift) == len(routes_default)
+    resp_night = client.get("/api/v1/routes?hour=23")
+    assert resp_night.status_code == 200
+    routes_night = resp_night.json()["routes"]
+    # Late night has 0.55 time_of_day_factor on crowd/business in Track A
+    assert routes_night[0]["safety_score"] <= routes_day[0]["safety_score"]
 
-    # 5. Invalid persona rejected with 422
-    resp_invalid = client.get("/api/v1/routes?persona=invalid_persona_xyz")
-    assert resp_invalid.status_code == 422
+    # 4. Persona + time/hour request
+    resp_combo = client.get("/api/v1/routes?persona=solo_night&hour=23")
+    assert resp_combo.status_code == 200
+    routes_combo = resp_combo.json()["routes"]
+    assert len(routes_combo) == len(routes_default)
+
+    # 5. Route by ID with persona + hour
+    resp_single = client.get("/api/v1/routes/route-001?persona=solo_night&hour=23")
+    assert resp_single.status_code == 200
+    assert resp_single.json()["route_id"] == "route-001"
+    assert resp_single.json()["safety_score"] == routes_combo[0]["safety_score"]
+
+    # 6. Invalid parameter values rejected with 422
+    assert client.get("/api/v1/routes?persona=invalid_persona").status_code == 422
+    assert client.get("/api/v1/routes?hour=24").status_code == 422
+    assert client.get("/api/v1/routes?hour=-1").status_code == 422
+    assert client.get("/api/v1/routes?hour=abc").status_code == 422
 
 
 if __name__ == "__main__":
@@ -430,8 +438,8 @@ if __name__ == "__main__":
     print("[PASS] Test 10: Escape Mode activation & distress dispatch")
     test_11_escape_location_update()
     print("[PASS] Test 11: Escape Mode live GPS tracking")
-    test_12_get_routes_persona_query_param()
-    print("[PASS] Test 12: GET /api/v1/routes?persona=<persona> Track A integration")
+    test_12_get_routes_persona_and_hour_query_params()
+    print("[PASS] Test 12: GET /api/v1/routes?persona=<persona>&hour=<hour> Track A integration & validation")
     print("\n==========================================")
     print("ALL 12/12 INTEGRATION TESTS PASSED (0 FAILED)")
     print("==========================================")

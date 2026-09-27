@@ -9,8 +9,8 @@ scoring dependency is unavailable.
 │  DEMO CACHE & FALLBACK MECHANISM (Phase 4 & Track A Persona)     │
 │                                                                  │
 │  - Precomputed routes are cached in-memory at startup.          │
-│  - When a persona is provided, routes are dynamically scored    │
-│    via Track A's real score_route() function.                   │
+│  - When persona/hour are provided, routes are dynamically       │
+│    scored via Track A's real score_route() function.            │
 │  - If live ML service fails, returns precomputed demo data.     │
 │  - Readiness can be inspected via get_demo_readiness().          │
 └──────────────────────────────────────────────────────────────────┘
@@ -42,11 +42,11 @@ def set_demo_fallback_mode(enabled: bool) -> None:
     _force_demo_fallback = enabled
 
 
-def get_all_routes(persona: str = "default") -> List[RouteObject]:
+def get_all_routes(persona: str = "default", hour: Optional[int] = None) -> List[RouteObject]:
     """
-    Return candidate routes scored for the requested persona.
+    Return candidate routes scored for the requested persona and hour.
 
-    Scores routes using Track A's score_route() for the specified persona.
+    Scores routes using Track A's score_route() for the specified persona and hour.
     """
     persona = persona or "default"
     routes = []
@@ -62,7 +62,7 @@ def get_all_routes(persona: str = "default") -> List[RouteObject]:
         try:
             from app import track_a_bridge
             if track_a_bridge.is_track_a_available():
-                scored = track_a_bridge.score_single_route(features, persona=persona)
+                scored = track_a_bridge.score_single_route(features, persona=persona, hour=hour)
                 new_score = round(scored["score"] / 100.0, 2)
                 r_scored = r.model_copy(update={"safety_score": new_score})
                 routes.append(r_scored)
@@ -73,9 +73,9 @@ def get_all_routes(persona: str = "default") -> List[RouteObject]:
     return routes
 
 
-def get_route_by_id(route_id: str, persona: str = "default") -> Optional[RouteObject]:
+def get_route_by_id(route_id: str, persona: str = "default", hour: Optional[int] = None) -> Optional[RouteObject]:
     """Look up a single route by its ID from active routes / demo cache."""
-    for route in get_all_routes(persona=persona):
+    for route in get_all_routes(persona=persona, hour=hour):
         if route.route_id == route_id:
             return route
     return None
